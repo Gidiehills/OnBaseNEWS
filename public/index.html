@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OnBase News - Real-time Crypto & Base Ecosystem News</title>
+  <meta name="description" content="Stay updated on Base blockchain, crypto, AI, and world news without leaving the app.">
+  
+  <!-- React & Babel -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin { animation: spin 1s linear infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Simple Icon Components
+    const Loader = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+        <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/>
+        <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+        <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>
+      </svg>
+    );
+
+    const RefreshCw = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+      </svg>
+    );
+
+    const ChevronLeft = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    );
+
+    const ChevronRight = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    );
+
+    const ExternalLink = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+    );
+
+    const TrendingUp = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+      </svg>
+    );
+
+    const TrendingDown = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>
+      </svg>
+    );
+
+    const Minus = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    );
+
+    // Main App Component
+    const OnBaseNews = () => {
+      const [activeCategory, setActiveCategory] = useState('all');
+      const [currentIndex, setCurrentIndex] = useState(0);
+      const [newsData, setNewsData] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [lastUpdated, setLastUpdated] = useState(null);
+
+      const API_URL = '/api/news';
+
+      const categories = [
+        { id: 'all', label: 'All News', emoji: '📰' },
+        { id: 'base', label: 'Base', emoji: '🔵' },
+        { id: 'crypto', label: 'Crypto', emoji: '₿' },
+        { id: 'ai', label: 'AI/Tech', emoji: '🤖' },
+        { id: 'world', label: 'World', emoji: '🌍' }
+      ];
+
+      const fetchNews = async () => {
+        setLoading(true);
+        setError(null);
+        
+        try {
+          const response = await fetch(API_URL);
+          
+          if (!response.ok) {
+            throw new Error(`Failed to fetch news (${response.status})`);
+          }
+          
+          const data = await response.json();
+          
+          if (!data.success || !data.data || data.data.length === 0) {
+            throw new Error('No news articles available');
+          }
+
+          setNewsData(data.data);
+          setLastUpdated(new Date());
+          setLoading(false);
+        } catch (err) {
+          console.error('Fetch error:', err);
+          setError(err.message);
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchNews();
+      }, []);
+
+      const filteredNews = activeCategory === 'all' 
+        ? newsData 
+        : newsData.filter(news => news.category === activeCategory);
+
+      const currentNews = filteredNews[currentIndex];
+
+      const getVibeIcon = (vibe) => {
+        switch(vibe) {
+          case 'bullish': return { Icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50', label: 'Bullish' };
+          case 'bearish': return { Icon: TrendingDown, color: 'text-red-500', bg: 'bg-red-50', label: 'Bearish' };
+          default: return { Icon: Minus, color: 'text-gray-500', bg: 'bg-gray-50', label: 'Neutral' };
+        }
+      };
+
+      const getRelevanceColor = (score) => {
+        if (score >= 80) return 'text-blue-600 bg-blue-50';
+        if (score >= 60) return 'text-indigo-600 bg-indigo-50';
+        return 'text-gray-600 bg-gray-50';
+      };
+
+      const nextStory = () => {
+        if (filteredNews.length === 0) return;
+        setCurrentIndex((prev) => (prev + 1) % filteredNews.length);
+      };
+
+      const prevStory = () => {
+        if (filteredNews.length === 0) return;
+        setCurrentIndex((prev) => (prev - 1 + filteredNews.length) % filteredNews.length);
+      };
+
+      if (loading) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center">
+            <div className="text-center">
+              <Loader className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+              <h2 className="text-xl font-bold text-gray-900 mb-2">Loading OnBase News...</h2>
+              <p className="text-gray-600 text-sm">Fetching and analyzing latest stories</p>
+              <p className="text-gray-400 text-xs mt-2">This may take 15-20 seconds</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (error) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
+              <div className="text-red-500 text-5xl mb-4">⚠️</div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">Unable to Load News</h2>
+              <p className="text-gray-600 mb-4 text-sm">{error}</p>
+              <button
+                onClick={fetchNews}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-colors flex items-center gap-2 mx-auto"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Try Again
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      if (!currentNews || filteredNews.length === 0) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
+              <div className="text-gray-400 text-5xl mb-4">📰</div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">No Stories in This Category</h2>
+              <p className="text-gray-600 mb-4">Try a different category or check back later</p>
+              <button
+                onClick={() => { setActiveCategory('all'); setCurrentIndex(0); }}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-colors"
+              >
+                View All News
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      const vibeInfo = getVibeIcon(currentNews.vibe);
+      const VibeIcon = vibeInfo.Icon;
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 flex items-center justify-center">
+          <div className="w-full max-w-md">
+            {/* Header */}
+            <div className="text-center mb-6">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">OnBase News</h1>
+              <p className="text-gray-600 text-sm">AI-powered news for Base ecosystem</p>
+              {lastUpdated && (
+                <div className="flex items-center justify-center gap-2 mt-2">
+                  <button
+                    onClick={fetchNews}
+                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
+                    disabled={loading}
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                  <span className="text-xs text-gray-400">
+                    Updated {lastUpdated.toLocaleTimeString()}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Category Filter */}
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => {
+                    setActiveCategory(cat.id);
+                    setCurrentIndex(0);
+                  }}
+                  className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-medium transition-all ${
+                    activeCategory === cat.id
+                      ? 'bg-blue-600 text-white shadow-lg'
+                      : 'bg-white text-gray-700 hover:bg-gray-50 shadow'
+                  }`}
+                >
+                  {cat.emoji} {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* News Card */}
+            <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+              {/* Metrics Bar */}
+              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <div className={`px-3 py-1 rounded-full ${vibeInfo.bg} flex items-center gap-1`}>
+                      <VibeIcon className={`w-4 h-4 ${vibeInfo.color}`} />
+                      <span className={`text-xs font-semibold ${vibeInfo.color}`}>{vibeInfo.label}</span>
+                    </div>
+                  </div>
+                  <div className={`px-3 py-1 rounded-full ${getRelevanceColor(currentNews.relevanceScore)} flex items-center gap-1`}>
+                    <span className="text-xs font-bold">{currentNews.relevanceScore}</span>
+                    <span className="text-xs font-medium">Relevance</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-6">
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-gray-500 font-medium">{currentNews.source}</span>
+                    <span className="text-xs text-gray-400">{currentNews.timestamp}</span>
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-3 leading-tight">
+                    {currentNews.title}
+                  </h2>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">AI Summary</h3>
+                    <p className="text-sm text-gray-700 leading-relaxed">{currentNews.summary}</p>
+                  </div>
+
+                  <div className="bg-blue-50 border-l-4 border-blue-600 p-3 rounded-r">
+                    <h3 className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-1">Why This Matters</h3>
+                    <p className="text-sm text-blue-800">{currentNews.whyItMatters}</p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="mt-6">
+                  <a 
+                    href={currentNews.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
+                  >
+                    Read Full Story <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+
+              {/* Navigation */}
+              <div className="bg-gray-50 px-6 py-4 flex items-center justify-between border-t">
+                <button
+                  onClick={prevStory}
+                  disabled={filteredNews.length <= 1}
+                  className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="w-6 h-6 text-gray-700" />
+                </button>
+                
+                <div className="text-center">
+                  <span className="text-sm font-medium text-gray-700">
+                    {currentIndex + 1} / {filteredNews.length}
+                  </span>
+                  <div className="flex gap-1 mt-1 justify-center">
+                    {filteredNews.slice(0, Math.min(10, filteredNews.length)).map((_, idx) => (
+                      <div
+                        key={idx}
+                        className={`h-1 rounded-full transition-all ${
+                          idx === currentIndex ? 'w-6 bg-blue-600' : 'w-1 bg-gray-300'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={nextStory}
+                  disabled={filteredNews.length <= 1}
+                  className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="w-6 h-6 text-gray-700" />
+                </button>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="mt-4 text-center text-xs text-gray-500">
+              <p>Powered by AI • {newsData.length} stories loaded</p>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // React 18: prefer createRoot (ReactDOM.render is legacy)
+    const rootEl = document.getElementById('root');
+    const root = ReactDOM.createRoot(rootEl);
+    root.render(<OnBaseNews />);
+  </script>
+</body>
+</html>
