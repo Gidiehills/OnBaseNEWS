@@ -152,12 +152,10 @@
       };
 
       const nextStory = () => {
-        if (filteredNews.length === 0) return;
         setCurrentIndex((prev) => (prev + 1) % filteredNews.length);
       };
 
       const prevStory = () => {
-        if (filteredNews.length === 0) return;
         setCurrentIndex((prev) => (prev - 1 + filteredNews.length) % filteredNews.length);
       };
 
@@ -300,17 +298,7 @@
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="mt-6">
-                  <a 
-                    href={currentNews.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
-                  >
-                    Read Full Story <ExternalLink className="w-4 h-4" />
-                  </a>
-                </div>
+
               </div>
 
               {/* Navigation */}
@@ -358,10 +346,7 @@
       );
     };
 
-    // React 18: prefer createRoot (ReactDOM.render is legacy)
-    const rootEl = document.getElementById('root');
-    const root = ReactDOM.createRoot(rootEl);
-    root.render(<OnBaseNews />);
+    ReactDOM.render(<OnBaseNews />, document.getElementById('root'));
   </script>
 </body>
 </html>
