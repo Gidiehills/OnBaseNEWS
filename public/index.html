@@ -117,7 +117,21 @@
             throw new Error('No news articles available');
           }
 
-          setNewsData(data.data);
+          // Validate and filter articles to ensure they have required fields
+          const validArticles = data.data.filter(article => 
+            article && 
+            article.title && 
+            article.url && 
+            article.category &&
+            article.summary &&
+            typeof article.relevanceScore === 'number'
+          );
+
+          if (validArticles.length === 0) {
+            throw new Error('No valid news articles available');
+          }
+
+          setNewsData(validArticles);
           setLastUpdated(new Date());
           setLoading(false);
         } catch (err) {
@@ -130,6 +144,11 @@
       useEffect(() => {
         fetchNews();
       }, []);
+
+      // Reset index when category changes
+      useEffect(() => {
+        setCurrentIndex(0);
+      }, [activeCategory]);
 
       const filteredNews = activeCategory === 'all' 
         ? newsData 
@@ -152,10 +171,12 @@
       };
 
       const nextStory = () => {
+        if (filteredNews.length === 0) return;
         setCurrentIndex((prev) => (prev + 1) % filteredNews.length);
       };
 
       const prevStory = () => {
+        if (filteredNews.length === 0) return;
         setCurrentIndex((prev) => (prev - 1 + filteredNews.length) % filteredNews.length);
       };
 
@@ -346,7 +367,10 @@
       );
     };
 
-    ReactDOM.render(<OnBaseNews />, document.getElementById('root'));
+    // React 18: use createRoot instead of deprecated render
+    const rootEl = document.getElementById('root');
+    const root = ReactDOM.createRoot(rootEl);
+    root.render(<OnBaseNews />);
   </script>
 </body>
 </html>
