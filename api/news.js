@@ -107,11 +107,23 @@ export default async function handler(req, res) {
       allNews.map(article => enrichWithAI(article, GROQ_API_KEY))
     );
 
-    // Filter out null results and low-relevance articles (only keep articles with relevance >= 30)
-    const validNews = enrichedNews
+    // Filter out null results and low-relevance articles
+    let validNews = enrichedNews
       .filter(item => item !== null)
-      .filter(item => item.relevanceScore >= 30) // Only show articles relevant to crypto/blockchain
-      .sort((a, b) => b.relevanceScore - a.relevanceScore); // Sort by relevance (highest first)
+      .filter(item => item.relevanceScore >= 30); // Only show articles relevant to crypto/blockchain
+
+    // STRICT Base filtering: If categorized as "base" but relevance < 70, recategorize to "crypto"
+    // This ensures only truly Base-relevant articles appear in Base category
+    validNews = validNews.map(item => {
+      if (item.category === 'base' && item.relevanceScore < 70) {
+        // Not actually Base-related, recategorize to crypto
+        return { ...item, category: 'crypto' };
+      }
+      return item;
+    });
+
+    // Sort by relevance (highest first)
+    validNews.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
     if (validNews.length === 0) {
       return res.status(500).json({ 
@@ -139,36 +151,45 @@ export default async function handler(req, res) {
 function determineCategory(title, currencies) {
   const titleLower = title.toLowerCase();
   
-  // Base-specific keywords (highest priority) - must be more specific
-  if (titleLower.includes('base chain') || titleLower.includes('base network') || 
-      titleLower.includes('base blockchain') || titleLower.includes('base l2') ||
-      titleLower.includes('base layer 2') || titleLower.includes('coinbase base') ||
-      (titleLower.includes('base') && (titleLower.includes('coinbase') || titleLower.includes('layer 2') || titleLower.includes('l2')))) {
+  // STRICT Base-specific keywords - ONLY explicitly Base-related content
+  // Must mention "Base" in context of blockchain/network/L2, not just "base" as a word
+  const baseKeywords = [
+    'base chain', 'base network', 'base blockchain', 'base l2', 'base layer 2',
+    'base ecosystem', 'base protocol', 'base mainnet', 'base testnet',
+    'on base', 'built on base', 'base defi', 'base nft',
+    'coinbase base', 'coinbase l2', 'coinbase layer 2'
+  ];
+  
+  const hasBaseKeyword = baseKeywords.some(keyword => titleLower.includes(keyword));
+  
+  // Also check if "base" appears with blockchain context (but exclude common false positives)
+  const baseWithContext = titleLower.includes('base') && 
+    (titleLower.includes('blockchain') || titleLower.includes('layer 2') || 
+     titleLower.includes('l2') || titleLower.includes('coinbase')) &&
+    !titleLower.includes('baseball') && !titleLower.includes('database') &&
+    !titleLower.includes('baseline') && !titleLower.includes('basement');
+  
+  if (hasBaseKeyword || baseWithContext) {
     return 'base';
   }
   
-  // Layer 2 / Scaling solutions (relates to Base) - but be more specific
-  if ((titleLower.includes('layer 2') || titleLower.includes('layer-2') || 
-      titleLower.includes(' l2 ') || titleLower.includes('rollup')) &&
-      (titleLower.includes('ethereum') || titleLower.includes('eth') || titleLower.includes('defi'))) {
-    return 'base';
-  }
-  
-  // DeFi keywords (often Base-relevant) - but only if clearly DeFi/crypto related
-  if ((titleLower.includes('defi') || titleLower.includes('decentralized finance') ||
-      titleLower.includes('uniswap') || titleLower.includes('aave') ||
-      titleLower.includes('dapp') || titleLower.includes('smart contract')) &&
-      !titleLower.includes('stock') && !titleLower.includes('trading') && !titleLower.includes('forex')) {
-    return 'base';
-  }
-  
-  // Check currencies for crypto categorization
+  // Check currencies - if BASE token is mentioned, it's Base-related
   if (currencies && currencies.length > 0) {
-    const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM' || c.code === 'BASE');
+    const hasBASE = currencies.some(c => 
+      c.code === 'BASE' || 
+      c.code === 'BASEUSD' ||
+      (c.name && c.name.toLowerCase().includes('base'))
+    );
+    
+    if (hasBASE) {
+      return 'base';
+    }
+    
+    const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM');
     const hasBTC = currencies.some(c => c.code === 'BTC' || c.code === 'BITCOIN');
     
-    // Ethereum-related often ties to Base
-    if (hasETH && (titleLower.includes('ethereum') || titleLower.includes('eth') || titleLower.includes('base'))) {
+    // Don't categorize general ETH/BTC as Base - only if explicitly mentioned with Base
+    if (hasETH && titleLower.includes('base')) {
       return 'base';
     }
     
@@ -191,9 +212,24 @@ function determineCategory(title, currencies) {
 function mapCategory(apiCategory, title) {
   const titleLower = title.toLowerCase();
   
-  // Check for Base-specific content - be more specific
-  if ((titleLower.includes('base') && (titleLower.includes('blockchain') || titleLower.includes('layer') || titleLower.includes('l2'))) ||
-      (titleLower.includes('coinbase') && (titleLower.includes('base') || titleLower.includes('layer 2')))) {
+  // STRICT Base-specific content - only explicit Base mentions
+  const baseKeywords = [
+    'base chain', 'base network', 'base blockchain', 'base l2', 'base layer 2',
+    'base ecosystem', 'base protocol', 'base mainnet', 'base testnet',
+    'on base', 'built on base', 'base defi', 'base nft',
+    'coinbase base', 'coinbase l2', 'coinbase layer 2'
+  ];
+  
+  const hasBaseKeyword = baseKeywords.some(keyword => titleLower.includes(keyword));
+  
+  // Also check if "base" appears with blockchain context (but exclude false positives)
+  const baseWithContext = titleLower.includes('base') && 
+    (titleLower.includes('blockchain') || titleLower.includes('layer 2') || 
+     titleLower.includes('l2') || titleLower.includes('coinbase')) &&
+    !titleLower.includes('baseball') && !titleLower.includes('database') &&
+    !titleLower.includes('baseline') && !titleLower.includes('basement');
+  
+  if (hasBaseKeyword || baseWithContext) {
     return 'base';
   }
   
@@ -249,19 +285,32 @@ async function enrichWithAI(article, apiKey) {
 
 Title: "${article.title}"
 Content: "${article.rawContent}"
-Category: ${article.category}
+Current Category: ${article.category}
+
+IMPORTANT: Base blockchain is Coinbase's Layer 2 solution on Ethereum. Only categorize as "base" if the article explicitly mentions:
+- Base blockchain/network/chain/L2
+- Base ecosystem/protocol
+- Projects built on Base
+- Coinbase Base (not just Coinbase exchange)
+
+Do NOT categorize as "base" if it's just about:
+- General Ethereum news
+- General Layer 2 news (Arbitrum, Optimism without Base mention)
+- General DeFi (unless specifically on Base)
+- General crypto news
 
 Provide a JSON response with these exact fields:
 {
   "summary": "A clear 2-3 sentence summary (max 100 words)",
   "relevanceScore": [number 0-100, where 100 = extremely relevant to Base blockchain users, 0 = not relevant],
   "vibe": "bullish" OR "bearish" OR "neutral",
-  "whyItMatters": "One sentence explaining why Base users care (max 30 words)"
+  "whyItMatters": "One sentence explaining why Base users care (max 30 words)",
+  "suggestedCategory": "base" OR "crypto" OR "ai" OR "world" (correct category if current is wrong)
 }
 
 Scoring guide:
-- 90-100: Direct Base ecosystem news
-- 70-89: Ethereum L2, DeFi, or crypto infrastructure news
+- 90-100: Direct Base ecosystem news (mentions Base explicitly)
+- 70-89: Ethereum L2, DeFi, or crypto infrastructure news (but NOT Base-specific)
 - 50-69: General crypto/tech that affects ecosystem
 - 30-49: Tangentially related
 - 0-29: Not relevant to crypto/blockchain
@@ -296,10 +345,24 @@ Respond ONLY with valid JSON, no markdown, no explanation.`;
     const cleanContent = content.replace(/```json|```/g, '').trim();
     const aiAnalysis = JSON.parse(cleanContent);
 
+    // Use AI-suggested category if provided and valid, otherwise keep original
+    const validCategories = ['base', 'crypto', 'ai', 'world'];
+    const finalCategory = aiAnalysis.suggestedCategory && 
+                          validCategories.includes(aiAnalysis.suggestedCategory.toLowerCase())
+      ? aiAnalysis.suggestedCategory.toLowerCase()
+      : article.category;
+
+    // If AI says it's not Base but we categorized it as Base, downgrade relevance
+    let finalRelevance = Math.min(100, Math.max(0, aiAnalysis.relevanceScore || 50));
+    if (article.category === 'base' && finalCategory !== 'base' && finalRelevance > 50) {
+      finalRelevance = Math.min(50, finalRelevance - 20); // Reduce relevance if mis-categorized
+    }
+
     return {
       ...article,
+      category: finalCategory, // Use AI-corrected category
       summary: aiAnalysis.summary || article.rawContent.substring(0, 150),
-      relevanceScore: Math.min(100, Math.max(0, aiAnalysis.relevanceScore || 50)),
+      relevanceScore: finalRelevance,
       vibe: ['bullish', 'bearish', 'neutral'].includes(aiAnalysis.vibe) ? aiAnalysis.vibe : 'neutral',
       whyItMatters: aiAnalysis.whyItMatters || 'Stay informed about ecosystem developments.'
     };
