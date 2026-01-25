@@ -60,7 +60,8 @@ export default async function handler(req, res) {
         { q: 'cryptocurrency OR blockchain OR bitcoin OR ethereum', category: 'crypto' },
         { q: 'Base blockchain OR Coinbase OR layer 2', category: 'base' },
         { q: 'artificial intelligence OR AI OR machine learning', category: 'ai' },
-        { q: 'technology OR startup', category: 'tech' }
+        { q: 'technology OR startup', category: 'tech' },
+        { q: 'world news OR global OR politics OR business', category: 'world' }
       ];
       
       for (const query of queries) {
@@ -75,7 +76,8 @@ export default async function handler(req, res) {
             const categoryNews = newsData.results
               .map((item, idx) => ({
                 id: `${query.category}_${idx}_${Date.now()}`,
-                category: query.category === 'tech' ? mapCategory('technology', item.title) : query.category,
+                category: query.category === 'tech' ? mapCategory('technology', item.title) : 
+                         query.category === 'world' ? 'world' : query.category,
                 title: item.title,
                 url: item.link,
                 source: item.source_name || item.source_id || 'News',
