@@ -102,6 +102,8 @@
       const [error, setError] = useState(null);
       const [lastUpdated, setLastUpdated] = useState(null);
       const [expandedArticles, setExpandedArticles] = useState(new Set()); // Track expanded articles by ID
+      const [fullContent, setFullContent] = useState({}); // Store full article content by article ID
+      const [loadingContent, setLoadingContent] = useState(new Set()); // Track which articles are loading content
 
       const API_URL = '/api/news';
 
@@ -162,28 +164,70 @@
       useEffect(() => {
         setCurrentIndex(0);
         setExpandedArticles(new Set()); // Reset expanded articles when category changes
+        setFullContent({}); // Clear full content cache
       }, [activeCategory]);
 
-      // Reset expanded state when article changes
-      useEffect(() => {
-        if (currentNews && !expandedArticles.has(currentNews.id)) {
-          // Auto-collapse when switching to a new article
+      const fetchFullContent = async (articleId, articleUrl) => {
+        // If we already have the content, don't fetch again
+        if (fullContent[articleId]) {
+          return;
         }
-      }, [currentIndex, activeCategory]);
 
-      const toggleExpand = (articleId) => {
+        setLoadingContent(prev => new Set(prev).add(articleId));
+
+        try {
+          const response = await fetch(`/api/article-content?url=${encodeURIComponent(articleUrl)}`);
+          const data = await response.json();
+
+          if (data.success && data.content) {
+            setFullContent(prev => ({
+              ...prev,
+              [articleId]: data.content
+            }));
+          } else {
+            // Fallback to rawContent if API fails
+            setFullContent(prev => ({
+              ...prev,
+              [articleId]: currentNews?.rawContent || 'Content not available'
+            }));
+          }
+        } catch (err) {
+          console.error('Error fetching full content:', err);
+          // Fallback to rawContent
+          setFullContent(prev => ({
+            ...prev,
+            [articleId]: currentNews?.rawContent || 'Content not available'
+          }));
+        } finally {
+          setLoadingContent(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(articleId);
+            return newSet;
+          });
+        }
+      };
+
+      const toggleExpand = (articleId, articleUrl) => {
+        const isCurrentlyExpanded = expandedArticles.has(articleId);
+        
         setExpandedArticles(prev => {
           const newSet = new Set(prev);
-          if (newSet.has(articleId)) {
+          if (isCurrentlyExpanded) {
             newSet.delete(articleId);
           } else {
             newSet.add(articleId);
+            // Fetch full content when expanding
+            if (!fullContent[articleId]) {
+              fetchFullContent(articleId, articleUrl);
+            }
           }
           return newSet;
         });
       };
 
       const isExpanded = currentNews ? expandedArticles.has(currentNews.id) : false;
+      const isLoadingContent = currentNews ? loadingContent.has(currentNews.id) : false;
+      const articleFullContent = currentNews ? fullContent[currentNews.id] : null;
 
       const filteredNews = activeCategory === 'all' 
         ? newsData 
@@ -354,56 +398,64 @@
                   </div>
 
                   {/* Full Article Content */}
-                  {currentNews.rawContent && currentNews.rawContent.length > 0 && currentNews.rawContent !== currentNews.title && (
-                    <div className="border-t pt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Full Article</h3>
-                        {currentNews.rawContent.length > 200 && (
-                          <button
-                            onClick={() => toggleExpand(currentNews.id)}
-                            className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 transition-colors"
-                          >
-                            {isExpanded ? (
-                              <>
-                                <span>See Less</span>
-                                <ChevronUp className="w-3 h-3" />
-                              </>
-                            ) : (
-                              <>
-                                <span>See More</span>
-                                <ChevronDown className="w-3 h-3" />
-                              </>
-                            )}
-                          </button>
+                  <div className="border-t pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Full Article</h3>
+                      <button
+                        onClick={() => toggleExpand(currentNews.id, currentNews.url)}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 transition-colors"
+                        disabled={isLoadingContent}
+                      >
+                        {isLoadingContent ? (
+                          <>
+                            <Loader className="w-3 h-3 animate-spin" />
+                            <span>Loading...</span>
+                          </>
+                        ) : isExpanded ? (
+                          <>
+                            <span>See Less</span>
+                            <ChevronUp className="w-3 h-3" />
+                          </>
+                        ) : (
+                          <>
+                            <span>See More</span>
+                            <ChevronDown className="w-3 h-3" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    
+                    {isExpanded ? (
+                      <div className="mt-3">
+                        {isLoadingContent ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader className="w-6 h-6 text-blue-600 animate-spin" />
+                            <span className="ml-2 text-sm text-gray-600">Loading full article...</span>
+                          </div>
+                        ) : articleFullContent ? (
+                          <div className="prose prose-sm max-w-none">
+                            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                              {articleFullContent}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-600 leading-relaxed">
+                            {currentNews.rawContent || 'Content is being loaded...'}
+                          </p>
                         )}
                       </div>
-                      {currentNews.rawContent.length > 200 ? (
-                        <>
-                          {isExpanded ? (
-                            <div className="mt-3">
-                              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                                {currentNews.rawContent}
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-600 leading-relaxed" style={{
-                              display: '-webkit-box',
-                              WebkitLineClamp: 3,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden'
-                            }}>
-                              {currentNews.rawContent.substring(0, 200)}
-                              {currentNews.rawContent.length > 200 && '...'}
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-sm text-gray-700 leading-relaxed mt-3">
-                          {currentNews.rawContent}
-                        </p>
-                      )}
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-sm text-gray-600 leading-relaxed" style={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden'
+                      }}>
+                        {currentNews.rawContent || currentNews.summary || 'Click "See More" to read the full article...'}
+                        {(currentNews.rawContent && currentNews.rawContent.length > 200) && '...'}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Actions */}
