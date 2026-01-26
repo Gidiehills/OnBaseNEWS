@@ -168,17 +168,25 @@
       }, [activeCategory]);
 
       const fetchFullContent = async (articleId, articleUrl) => {
-        // If we already have the content, don't fetch again
+        console.log('fetchFullContent called', { articleId, articleUrl });
+        
+        // Check if we already have the content
         setFullContent(currentContent => {
           if (currentContent[articleId]) {
+            console.log('Content already cached for', articleId);
             return currentContent; // Already have it
           }
           return currentContent;
         });
 
-        setLoadingContent(prev => new Set(prev).add(articleId));
+        setLoadingContent(prev => {
+          const newSet = new Set(prev);
+          newSet.add(articleId);
+          return newSet;
+        });
 
         try {
+          console.log('Fetching content from API...', articleUrl);
           const response = await fetch(`/api/article-content?url=${encodeURIComponent(articleUrl)}`);
           
           if (!response.ok) {
@@ -186,14 +194,17 @@
           }
           
           const data = await response.json();
+          console.log('API response:', data);
 
           if (data.success && data.content) {
+            console.log('Setting full content for', articleId);
             setFullContent(prev => ({
               ...prev,
               [articleId]: data.content
             }));
           } else {
             // Fallback to rawContent or summary if API fails
+            console.log('API failed, using fallback content');
             const fallbackContent = currentNews?.rawContent || currentNews?.summary || 'Content not available. Please use "Read Full Story" button.';
             setFullContent(prev => ({
               ...prev,
@@ -237,6 +248,16 @@
           } else {
             newSet.add(articleId);
             console.log('Expanding article, fetching content...');
+            
+            // Immediately show rawContent/summary as fallback while fetching
+            const immediateContent = currentNews?.rawContent || currentNews?.summary || '';
+            if (immediateContent) {
+              setFullContent(prev => ({
+                ...prev,
+                [articleId]: immediateContent
+              }));
+            }
+            
             // Fetch full content when expanding
             fetchFullContent(articleId, articleUrl);
           }
@@ -479,14 +500,19 @@
                           </div>
                         ) : articleFullContent ? (
                           <div className="prose prose-sm max-w-none">
-                            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
                               {articleFullContent}
                             </p>
                           </div>
                         ) : (
-                          <p className="text-sm text-gray-600 leading-relaxed">
-                            {currentNews.rawContent || 'Content is being loaded...'}
-                          </p>
+                          <div className="mt-3">
+                            <p className="text-sm text-gray-600 leading-relaxed mb-2">
+                              {currentNews.rawContent || currentNews.summary || 'Loading content...'}
+                            </p>
+                            <p className="text-xs text-gray-500 italic">
+                              If content doesn't appear, the article may require visiting the source website.
+                            </p>
+                          </div>
                         )}
                       </div>
                     ) : (
