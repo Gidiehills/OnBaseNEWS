@@ -1,8 +1,7 @@
 // api/news.js
-// Updated version with better free APIs
+// Updated version with Base-specific RSS feeds
 
 export default async function handler(req, res) {
-  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -11,17 +10,45 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Get API keys from environment variables
   const CRYPTO_PANIC_KEY = process.env.CRYPTO_PANIC_KEY;
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
-  const NEWSDATA_KEY = process.env.NEWSDATA_KEY; // New API
+  const NEWSDATA_KEY = process.env.NEWSDATA_KEY;
 
   try {
     const allNews = [];
 
-    // Fetch from CryptoPanic with multiple filters for more coverage
+    // 1. Fetch from Coinbase Blog RSS (Base-specific!)
     try {
-      const filters = ['rising', 'hot', 'important'];
+      const coinbaseRSS = await fetch('https://blog.coinbase.com/feed');
+      if (coinbaseRSS.ok) {
+        const rssText = await coinbaseRSS.text();
+        const items = parseRSS(rssText);
+        
+        items.slice(0, 10).forEach((item, idx) => {
+          // Check if it's Base-related
+          const isBaseRelated = item.title.toLowerCase().includes('base') || 
+                                 item.description.toLowerCase().includes('base') ||
+                                 item.title.toLowerCase().includes('layer 2') ||
+                                 item.title.toLowerCase().includes('l2');
+          
+          allNews.push({
+            id: `coinbase_${idx}`,
+            category: isBaseRelated ? 'base' : 'crypto',
+            title: item.title,
+            url: item.link,
+            source: 'Coinbase Blog',
+            timestamp: formatTime(item.pubDate),
+            rawContent: item.description || item.title
+          });
+        });
+      }
+    } catch (err) {
+      console.error('Coinbase RSS error:', err);
+    }
+
+    // 2. Fetch from CryptoPanic with Base focus
+    try {
+      const filters = ['rising', 'hot'];
       
       for (const filter of filters) {
         const cryptoResponse = await fetch(
@@ -31,65 +58,59 @@ export default async function handler(req, res) {
         if (cryptoResponse.ok) {
           const cryptoData = await cryptoResponse.json();
           
-          if (cryptoData.results && cryptoData.results.length > 0) {
-            const cryptoNews = cryptoData.results.slice(0, 8)
-              .map((item, idx) => ({
+          if (cryptoData.results) {
+            cryptoData.results.slice(0, 8).forEach((item, idx) => {
+              allNews.push({
                 id: `crypto_${filter}_${item.id || idx}`,
                 category: determineCategory(item.title, item.currencies),
                 title: item.title,
                 url: item.url,
-                source: item.source?.title || item.source?.domain || 'Crypto News',
+                source: item.source?.title || 'Crypto News',
                 timestamp: formatTime(item.created_at),
-                rawContent: item.title || item.subtitle || ''
-              }))
-              .filter(item => item.category !== null); // Only include items with valid categories
-            allNews.push(...cryptoNews);
+                rawContent: item.title
+              });
+            });
           }
         }
         
-        // Small delay between requests
         await new Promise(resolve => setTimeout(resolve, 300));
       }
     } catch (err) {
       console.error('CryptoPanic error:', err);
     }
 
-    // Fetch from NewsData.io with crypto-focused queries
+    // 3. Fetch from NewsData.io with crypto focus
     try {
       const queries = [
-        { q: 'cryptocurrency OR blockchain OR bitcoin OR ethereum', category: 'crypto' },
-        { q: 'Base blockchain OR Coinbase OR layer 2', category: 'base' },
-        { q: 'artificial intelligence OR AI OR machine learning', category: 'ai' },
-        { q: 'technology OR startup', category: 'tech' },
-        { q: 'world news OR global OR politics OR business', category: 'world' }
+        'Base blockchain OR Coinbase layer 2',
+        'Ethereum layer 2 OR L2 scaling',
+        'cryptocurrency OR DeFi',
+        'artificial intelligence'
       ];
       
       for (const query of queries) {
         const newsResponse = await fetch(
-          `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_KEY}&q=${encodeURIComponent(query.q)}&language=en&size=5`
+          `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_KEY}&q=${encodeURIComponent(query)}&language=en&size=3`
         );
         
         if (newsResponse.ok) {
           const newsData = await newsResponse.json();
           
-          if (newsData.results && newsData.results.length > 0) {
-            const categoryNews = newsData.results
-              .map((item, idx) => ({
-                id: `${query.category}_${idx}_${Date.now()}`,
-                category: query.category === 'tech' ? mapCategory('technology', item.title) : 
-                         query.category === 'world' ? 'world' : query.category,
+          if (newsData.results) {
+            newsData.results.forEach((item, idx) => {
+              allNews.push({
+                id: `news_${Date.now()}_${idx}`,
+                category: mapCategory(item.title, item.description),
                 title: item.title,
                 url: item.link,
-                source: item.source_name || item.source_id || 'News',
+                source: item.source_name || 'News',
                 timestamp: formatTime(item.pubDate),
-                rawContent: item.description || item.title || ''
-              }))
-              .filter(item => item.title && item.url); // Only include items with valid title and URL
-            allNews.push(...categoryNews);
+                rawContent: item.description || item.title
+              });
+            });
           }
         }
         
-        // Delay between requests
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     } catch (err) {
@@ -99,40 +120,19 @@ export default async function handler(req, res) {
     if (allNews.length === 0) {
       return res.status(500).json({ 
         success: false,
-        error: 'No news articles found. Please try again later.' 
+        error: 'No news found' 
       });
     }
+
+    // Remove duplicates
+    const uniqueNews = removeDuplicates(allNews);
 
     // Process with AI
-    console.log(`Processing ${allNews.length} articles with AI...`);
     const enrichedNews = await Promise.all(
-      allNews.map(article => enrichWithAI(article, GROQ_API_KEY))
+      uniqueNews.map(article => enrichWithAI(article, GROQ_API_KEY))
     );
 
-    // Filter out null results and low-relevance articles
-    let validNews = enrichedNews
-      .filter(item => item !== null)
-      .filter(item => item.relevanceScore >= 30); // Only show articles relevant to crypto/blockchain
-
-    // STRICT Base filtering: If categorized as "base" but relevance < 70, recategorize to "crypto"
-    // This ensures only truly Base-relevant articles appear in Base category
-    validNews = validNews.map(item => {
-      if (item.category === 'base' && item.relevanceScore < 70) {
-        // Not actually Base-related, recategorize to crypto
-        return { ...item, category: 'crypto' };
-      }
-      return item;
-    });
-
-    // Sort by relevance (highest first)
-    validNews.sort((a, b) => b.relevanceScore - a.relevanceScore);
-
-    if (validNews.length === 0) {
-      return res.status(500).json({ 
-        success: false,
-        error: 'No relevant articles found. Please try again later.' 
-      });
-    }
+    const validNews = enrichedNews.filter(item => item !== null);
 
     res.status(200).json({
       success: true,
@@ -145,121 +145,109 @@ export default async function handler(req, res) {
     console.error('API Error:', error);
     res.status(500).json({ 
       success: false,
-      error: error.message || 'Internal server error' 
+      error: error.message 
     });
   }
+}
+
+function parseRSS(xmlText) {
+  // Simple RSS parser for common fields
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  
+  while ((match = itemRegex.exec(xmlText)) !== null) {
+    const itemXML = match[1];
+    
+    const getTag = (tag) => {
+      const regex = new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>|<${tag}[^>]*>([\\s\\S]*?)</${tag}>`);
+      const m = itemXML.match(regex);
+      return m ? (m[1] || m[2] || '').trim() : '';
+    };
+    
+    items.push({
+      title: getTag('title'),
+      link: getTag('link'),
+      description: getTag('description'),
+      pubDate: getTag('pubDate')
+    });
+  }
+  
+  return items;
+}
+
+function removeDuplicates(articles) {
+  const seen = new Set();
+  return articles.filter(article => {
+    const key = article.title.toLowerCase().substring(0, 50);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function determineCategory(title, currencies) {
   const titleLower = title.toLowerCase();
   
-  // STRICT Base-specific keywords - ONLY explicitly Base-related content
-  // Must mention "Base" in context of blockchain/network/L2, not just "base" as a word
-  const baseKeywords = [
-    'base chain', 'base network', 'base blockchain', 'base l2', 'base layer 2',
-    'base ecosystem', 'base protocol', 'base mainnet', 'base testnet',
-    'on base', 'built on base', 'base defi', 'base nft',
-    'coinbase base', 'coinbase l2', 'coinbase layer 2'
-  ];
-  
-  const hasBaseKeyword = baseKeywords.some(keyword => titleLower.includes(keyword));
-  
-  // Also check if "base" appears with blockchain context (but exclude common false positives)
-  const baseWithContext = titleLower.includes('base') && 
-    (titleLower.includes('blockchain') || titleLower.includes('layer 2') || 
-     titleLower.includes('l2') || titleLower.includes('coinbase')) &&
-    !titleLower.includes('baseball') && !titleLower.includes('database') &&
-    !titleLower.includes('baseline') && !titleLower.includes('basement');
-  
-  if (hasBaseKeyword || baseWithContext) {
+  // Base-specific (highest priority)
+  if (titleLower.includes('base chain') || titleLower.includes('base network') || 
+      titleLower.includes('base blockchain') || titleLower.includes('coinbase l2') ||
+      titleLower.includes('base ecosystem') || titleLower.includes('base app') ||
+      (titleLower.includes('base') && (titleLower.includes('coinbase') || titleLower.includes('layer')))) {
     return 'base';
   }
   
-  // Check currencies - if BASE token is mentioned, it's Base-related
-  if (currencies && currencies.length > 0) {
-    const hasBASE = currencies.some(c => 
-      c.code === 'BASE' || 
-      c.code === 'BASEUSD' ||
-      (c.name && c.name.toLowerCase().includes('base'))
-    );
-    
-    if (hasBASE) {
-      return 'base';
-    }
-    
-    const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM');
-    const hasBTC = currencies.some(c => c.code === 'BTC' || c.code === 'BITCOIN');
-    
-    // Don't categorize general ETH/BTC as Base - only if explicitly mentioned with Base
-    if (hasETH && titleLower.includes('base')) {
-      return 'base';
-    }
-    
-    if (hasBTC || hasETH) return 'crypto';
+  // Layer 2 / Scaling (Base-related)
+  if (titleLower.includes('layer 2') || titleLower.includes('layer-2') || 
+      titleLower.includes(' l2 ') || titleLower.includes('rollup') ||
+      titleLower.includes('optimism') || titleLower.includes('arbitrum') ||
+      titleLower.includes('scaling')) {
+    return 'base';
   }
   
-  // General crypto keywords - but exclude non-crypto content
-  if ((titleLower.includes('crypto') || titleLower.includes('bitcoin') ||
-      titleLower.includes('ethereum') || titleLower.includes('blockchain') ||
-      titleLower.includes('nft') || titleLower.includes('web3') ||
-      titleLower.includes('token') || titleLower.includes('coin')) &&
-      !titleLower.includes('stock market') && !titleLower.includes('traditional finance')) {
+  // DeFi (Base-relevant)
+  if (titleLower.includes('defi') || titleLower.includes('uniswap') ||
+      titleLower.includes('aave') || titleLower.includes('liquidity')) {
+    return 'base';
+  }
+  
+  // Check currencies
+  if (currencies && currencies.length > 0) {
+    const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM');
+    if (hasETH) return 'base';
+  }
+  
+  // General crypto
+  if (titleLower.includes('crypto') || titleLower.includes('bitcoin') ||
+      titleLower.includes('ethereum') || titleLower.includes('blockchain')) {
     return 'crypto';
   }
   
-  // Default to crypto only if we have currency data, otherwise let AI decide
-  return currencies && currencies.length > 0 ? 'crypto' : null;
+  return 'crypto';
 }
 
-function mapCategory(apiCategory, title) {
-  const titleLower = title.toLowerCase();
+function mapCategory(title, description) {
+  const text = (title + ' ' + (description || '')).toLowerCase();
   
-  // STRICT Base-specific content - only explicit Base mentions
-  const baseKeywords = [
-    'base chain', 'base network', 'base blockchain', 'base l2', 'base layer 2',
-    'base ecosystem', 'base protocol', 'base mainnet', 'base testnet',
-    'on base', 'built on base', 'base defi', 'base nft',
-    'coinbase base', 'coinbase l2', 'coinbase layer 2'
-  ];
-  
-  const hasBaseKeyword = baseKeywords.some(keyword => titleLower.includes(keyword));
-  
-  // Also check if "base" appears with blockchain context (but exclude false positives)
-  const baseWithContext = titleLower.includes('base') && 
-    (titleLower.includes('blockchain') || titleLower.includes('layer 2') || 
-     titleLower.includes('l2') || titleLower.includes('coinbase')) &&
-    !titleLower.includes('baseball') && !titleLower.includes('database') &&
-    !titleLower.includes('baseline') && !titleLower.includes('basement');
-  
-  if (hasBaseKeyword || baseWithContext) {
+  // Base-specific
+  if (text.includes('base') && (text.includes('blockchain') || text.includes('layer') || text.includes('coinbase'))) {
     return 'base';
   }
   
-  // Check for AI/Tech keywords - but prioritize AI-specific content
-  if (titleLower.includes('ai ') || titleLower.includes('artificial intelligence') ||
-      titleLower.includes('machine learning') || titleLower.includes('chatgpt') ||
-      titleLower.includes('openai') || titleLower.includes('gpt-') ||
-      titleLower.includes('llm') || titleLower.includes('neural network')) {
+  // AI/Tech
+  if (text.includes('ai ') || text.includes('artificial intelligence') ||
+      text.includes('machine learning') || text.includes('chatgpt')) {
     return 'ai';
   }
   
-  // Check for crypto/blockchain keywords - prioritize these
-  if (titleLower.includes('crypto') || titleLower.includes('bitcoin') ||
-      titleLower.includes('ethereum') || titleLower.includes('blockchain') ||
-      titleLower.includes('defi') || titleLower.includes('nft') ||
-      titleLower.includes('web3') || titleLower.includes('token') ||
-      titleLower.includes('coin') || titleLower.includes('wallet')) {
+  // Crypto
+  if (text.includes('crypto') || text.includes('bitcoin') ||
+      text.includes('ethereum') || text.includes('blockchain') ||
+      text.includes('defi')) {
     return 'crypto';
   }
   
-  // Only default to world if it's clearly general news (not crypto/tech)
-  if (titleLower.includes('business') || titleLower.includes('economy') ||
-      titleLower.includes('politics') || titleLower.includes('world news')) {
-    return 'world';
-  }
-  
-  // If unclear, default to crypto (since we're a crypto news app)
-  return 'crypto';
+  return 'world';
 }
 
 function formatTime(timestamp) {
@@ -283,41 +271,18 @@ function formatTime(timestamp) {
 
 async function enrichWithAI(article, apiKey) {
   try {
-    const prompt = `Analyze this news headline for a Base blockchain ecosystem audience.
+    const prompt = `Analyze this news for Base blockchain users.
 
 Title: "${article.title}"
 Content: "${article.rawContent}"
-Current Category: ${article.category}
 
-IMPORTANT: Base blockchain is Coinbase's Layer 2 solution on Ethereum. Only categorize as "base" if the article explicitly mentions:
-- Base blockchain/network/chain/L2
-- Base ecosystem/protocol
-- Projects built on Base
-- Coinbase Base (not just Coinbase exchange)
-
-Do NOT categorize as "base" if it's just about:
-- General Ethereum news
-- General Layer 2 news (Arbitrum, Optimism without Base mention)
-- General DeFi (unless specifically on Base)
-- General crypto news
-
-Provide a JSON response with these exact fields:
+Respond ONLY with valid JSON (no markdown):
 {
-  "summary": "A clear 2-3 sentence summary (max 100 words)",
-  "relevanceScore": [number 0-100, where 100 = extremely relevant to Base blockchain users, 0 = not relevant],
+  "summary": "Clear 2-3 sentence summary (max 100 words)",
+  "relevanceScore": [0-100 number - rate how relevant this is to Base blockchain ecosystem],
   "vibe": "bullish" OR "bearish" OR "neutral",
-  "whyItMatters": "One sentence explaining why Base users care (max 30 words)",
-  "suggestedCategory": "base" OR "crypto" OR "ai" OR "world" (correct category if current is wrong)
-}
-
-Scoring guide:
-- 90-100: Direct Base ecosystem news (mentions Base explicitly)
-- 70-89: Ethereum L2, DeFi, or crypto infrastructure news (but NOT Base-specific)
-- 50-69: General crypto/tech that affects ecosystem
-- 30-49: Tangentially related
-- 0-29: Not relevant to crypto/blockchain
-
-Respond ONLY with valid JSON, no markdown, no explanation.`;
+  "whyItMatters": "One sentence why Base users care (max 30 words)"
+}`;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -327,57 +292,33 @@ Respond ONLY with valid JSON, no markdown, no explanation.`;
       },
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
-        messages: [{ 
-          role: 'user', 
-          content: prompt 
-        }],
+        messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         max_tokens: 500
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`Groq API error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`AI error: ${response.status}`);
 
     const data = await response.json();
     const content = data.choices[0].message.content;
-    
-    // Clean and parse AI response
     const cleanContent = content.replace(/```json|```/g, '').trim();
     const aiAnalysis = JSON.parse(cleanContent);
 
-    // Use AI-suggested category if provided and valid, otherwise keep original
-    const validCategories = ['base', 'crypto', 'ai', 'world'];
-    const finalCategory = aiAnalysis.suggestedCategory && 
-                          validCategories.includes(aiAnalysis.suggestedCategory.toLowerCase())
-      ? aiAnalysis.suggestedCategory.toLowerCase()
-      : article.category;
-
-    // If AI says it's not Base but we categorized it as Base, downgrade relevance
-    let finalRelevance = Math.min(100, Math.max(0, aiAnalysis.relevanceScore || 50));
-    if (article.category === 'base' && finalCategory !== 'base' && finalRelevance > 50) {
-      finalRelevance = Math.min(50, finalRelevance - 20); // Reduce relevance if mis-categorized
-    }
-
     return {
       ...article,
-      category: finalCategory, // Use AI-corrected category
       summary: aiAnalysis.summary || article.rawContent.substring(0, 150),
-      relevanceScore: finalRelevance,
+      relevanceScore: Math.min(100, Math.max(0, aiAnalysis.relevanceScore || 50)),
       vibe: ['bullish', 'bearish', 'neutral'].includes(aiAnalysis.vibe) ? aiAnalysis.vibe : 'neutral',
-      whyItMatters: aiAnalysis.whyItMatters || 'Stay informed about ecosystem developments.'
+      whyItMatters: aiAnalysis.whyItMatters || 'Relevant to ecosystem.'
     };
   } catch (err) {
-    console.error('AI enrichment error for:', article.title, err.message);
-    
-    // Return article with fallback values
     return {
       ...article,
-      summary: article.rawContent ? article.rawContent.substring(0, 150) + '...' : 'Summary unavailable',
+      summary: article.rawContent ? article.rawContent.substring(0, 150) : 'Summary unavailable',
       relevanceScore: 50,
       vibe: 'neutral',
-      whyItMatters: 'Relevant to the crypto and blockchain ecosystem.'
+      whyItMatters: 'Relevant to the crypto ecosystem.'
     };
   }
 }
