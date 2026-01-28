@@ -1,5 +1,5 @@
 // api/news.js
-// ULTIMATE VERSION - Ditches problematic RSS, focuses on reliable APIs + targeted Base queries
+// HYPER-FOCUSED BASE VERSION - Prioritizes Base, Coinbase, L2s (Optimism, Arbitrum)
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,21 +14,21 @@ export default async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   const NEWSDATA_KEY = process.env.NEWSDATA_KEY;
 
-  console.log('🚀 Starting news fetch (Ultimate Edition)...');
+  console.log('🔵 Starting BASE-FOCUSED news fetch...');
 
   try {
     const allNews = [];
     const debugInfo = { cryptoPanicCount: 0, newsDataCount: 0, errors: [] };
 
-    // 1. CRYPTOPANIC - Multiple attempts with different filters
-    console.log('📰 Fetching CryptoPanic (comprehensive)...');
+    // 1. CRYPTOPANIC - Ethereum focused (Base runs on ETH)
+    console.log('📰 Fetching CryptoPanic (ETH + L2 focus)...');
     try {
-      const filters = ['rising', 'hot', 'bullish', 'important'];
-      const currencies = 'ETH,BTC,BASE,USDC';
+      const filters = ['rising', 'hot', 'important'];
       
       for (const filter of filters) {
         try {
-          const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=${filter}&currencies=${currencies}`;
+          // Focus on ETH, OP, ARB - all L2-relevant
+          const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=${filter}&currencies=ETH,OP,ARB`;
           const response = await fetch(url, { 
             headers: { 'User-Agent': 'OnBaseNews/1.0' } 
           });
@@ -39,8 +39,8 @@ export default async function handler(req, res) {
             if (data.results && data.results.length > 0) {
               console.log(`✅ CryptoPanic ${filter}: ${data.results.length} articles`);
               
-              data.results.slice(0, 10).forEach((item, idx) => {
-                const category = ultraSmartCategorize(item.title, '', item.currencies);
+              data.results.slice(0, 12).forEach((item, idx) => {
+                const category = baseFirstCategorize(item.title, '', item.currencies);
                 
                 allNews.push({
                   id: `cp_${filter}_${Date.now()}_${idx}`,
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
                 debugInfo.cryptoPanicCount++;
               });
               
-              break; // Stop after first successful fetch
+              break;
             }
           }
         } catch (e) {
@@ -73,28 +73,46 @@ export default async function handler(req, res) {
       debugInfo.errors.push(`CryptoPanic: ${err.message}`);
     }
 
-    // 2. NEWSDATA.IO - Hyper-targeted Base queries
+    // 2. NEWSDATA.IO - BASE & L2 HYPER-FOCUSED
     if (NEWSDATA_KEY) {
-      console.log('📰 Fetching NewsData (Base-focused)...');
+      console.log('📰 Fetching NewsData (Base/L2 ONLY)...');
       try {
         const queries = [
-          // Base-specific
-          'Base blockchain Coinbase',
-          'Base network layer 2',
+          // BASE-SPECIFIC (highest priority)
+          'Base blockchain',
+          'Base chain network',
+          'Coinbase Base layer 2',
+          'Base ecosystem apps',
           'Jesse Pollak Base',
-          'Base ecosystem DeFi',
-          // L2 general
-          'Ethereum layer 2 scaling',
-          'L2 rollup optimism arbitrum',
-          // DeFi (often Base-relevant)
-          'DeFi Uniswap Aave protocol',
-          'decentralized exchange liquidity',
-          // Crypto general
-          'cryptocurrency Bitcoin Ethereum',
-          'blockchain adoption',
-          // AI/Tech
-          'artificial intelligence blockchain',
-          'AI crypto technology'
+          'Base DeFi protocol',
+          'Base NFT marketplace',
+          
+          // COINBASE (Base's parent)
+          'Coinbase layer 2',
+          'Coinbase L2 network',
+          'Coinbase blockchain',
+          
+          // LAYER 2 GENERAL (Optimism, Arbitrum, etc)
+          'Optimism OP Mainnet',
+          'Arbitrum ARB blockchain',
+          'layer 2 Ethereum scaling',
+          'Optimistic rollup',
+          'ZK rollup layer 2',
+          'L2 scaling solution',
+          
+          // ETHEREUM L2 ECOSYSTEM
+          'Ethereum layer 2 DeFi',
+          'Ethereum L2 adoption',
+          'Ethereum rollup technology',
+          
+          // DEFI ON L2s
+          'DeFi layer 2',
+          'Uniswap layer 2',
+          'Aave Optimism Arbitrum',
+          
+          // Only 2 non-L2 queries for balance
+          'cryptocurrency Ethereum',
+          'blockchain technology'
         ];
         
         for (const query of queries) {
@@ -109,7 +127,7 @@ export default async function handler(req, res) {
                 console.log(`✅ NewsData "${query}": ${data.results.length} articles`);
                 
                 data.results.forEach((item, idx) => {
-                  const category = ultraSmartCategorize(item.title, item.description);
+                  const category = baseFirstCategorize(item.title, item.description);
                   
                   allNews.push({
                     id: `nd_${Date.now()}_${idx}`,
@@ -130,27 +148,25 @@ export default async function handler(req, res) {
               }
             }
           } catch (e) {
-            console.log(`  ⚠️  NewsData query failed: ${e.message}`);
+            console.log(`  ⚠️  NewsData "${query}" failed`);
           }
           
-          await new Promise(resolve => setTimeout(resolve, 650));
+          await new Promise(resolve => setTimeout(resolve, 700));
         }
       } catch (err) {
         console.error('❌ NewsData error:', err.message);
         debugInfo.errors.push(`NewsData: ${err.message}`);
       }
     } else {
-      console.log('⚠️  NewsData API key not provided - limited Base coverage');
+      console.log('⚠️  CRITICAL: NewsData key missing - Base coverage will be minimal!');
     }
 
     console.log(`📊 Total collected: ${allNews.length}`);
-    console.log(`   CryptoPanic: ${debugInfo.cryptoPanicCount}`);
-    console.log(`   NewsData: ${debugInfo.newsDataCount}`);
 
     if (allNews.length === 0) {
       return res.status(500).json({ 
         success: false,
-        error: 'No news found. Check API keys.',
+        error: 'No news found. NewsData API key required for Base coverage.',
         debug: debugInfo
       });
     }
@@ -162,14 +178,12 @@ export default async function handler(req, res) {
     // Category breakdown
     const baseCount = uniqueNews.filter(n => n.category === 'base').length;
     const cryptoCount = uniqueNews.filter(n => n.category === 'crypto').length;
-    const aiCount = uniqueNews.filter(n => n.category === 'ai').length;
-    const worldCount = uniqueNews.filter(n => n.category === 'world').length;
     
-    console.log(`📊 Categories:`);
-    console.log(`   🔵 Base: ${baseCount}`);
+    console.log(`📊 Categories (Base-First):`);
+    console.log(`   🔵 Base/L2: ${baseCount}`);
     console.log(`   ₿ Crypto: ${cryptoCount}`);
-    console.log(`   🤖 AI: ${aiCount}`);
-    console.log(`   🌍 World: ${worldCount}`);
+    console.log(`   🤖 AI: ${uniqueNews.filter(n => n.category === 'ai').length}`);
+    console.log(`   🌍 World: ${uniqueNews.filter(n => n.category === 'world').length}`);
 
     // AI enrichment
     console.log('🤖 AI processing...');
@@ -181,7 +195,7 @@ export default async function handler(req, res) {
     const finalBaseCount = validNews.filter(n => n.category === 'base').length;
     
     console.log(`✅ Final: ${validNews.length} articles`);
-    console.log(`🔵 FINAL BASE COUNT: ${finalBaseCount}`);
+    console.log(`🔵 FINAL BASE/L2 COUNT: ${finalBaseCount}`);
 
     res.status(200).json({
       success: true,
@@ -190,9 +204,7 @@ export default async function handler(req, res) {
       debug: {
         ...debugInfo,
         baseArticles: finalBaseCount,
-        cryptoArticles: validNews.filter(n => n.category === 'crypto').length,
-        aiArticles: validNews.filter(n => n.category === 'ai').length,
-        worldArticles: validNews.filter(n => n.category === 'world').length
+        percentageBase: Math.round((finalBaseCount / validNews.length) * 100)
       },
       timestamp: new Date().toISOString()
     });
@@ -203,75 +215,132 @@ export default async function handler(req, res) {
   }
 }
 
-function ultraSmartCategorize(title, description = '', currencies = []) {
+// BASE-FIRST CATEGORIZATION - Everything possible goes to Base
+function baseFirstCategorize(title, description = '', currencies = []) {
   const text = (title + ' ' + description).toLowerCase();
   
-  // BASE - Maximum aggressive
-  const baseKeywords = [
+  // ========== BASE (HIGHEST PRIORITY) ==========
+  
+  // Direct Base mentions
+  const baseExplicit = [
     'base chain', 'base network', 'base blockchain', 'base ecosystem',
-    'base mainnet', 'base app', 'base dapp', 'base protocol',
-    'jesse pollak', 'on base', 'base token', 'basecamp',
-    'coinbase l2', 'coinbase layer 2', 'coinbase base'
+    'base mainnet', 'base protocol', 'base app', 'base dapp',
+    'jesse pollak', 'basecamp', 'on base', 'built on base',
+    'base token', 'base nft', 'base defi'
   ];
   
-  if (baseKeywords.some(kw => text.includes(kw))) {
+  if (baseExplicit.some(kw => text.includes(kw))) {
     return 'base';
   }
   
-  // Base-related combinations
-  if ((text.includes('base') && (text.includes('coinbase') || text.includes('layer') || text.includes('l2')))) {
+  // Coinbase + Base/L2 combinations
+  if (text.includes('coinbase') && (
+    text.includes('base') || text.includes('layer 2') || 
+    text.includes('l2') || text.includes('blockchain')
+  )) {
     return 'base';
   }
   
-  // L2 / Scaling (all Base-related)
+  // ========== LAYER 2 (ALL = BASE) ==========
+  
   const l2Keywords = [
-    'layer 2', 'layer-2', ' l2 ', 'rollup', 'optimistic', 'zk-rollup',
-    'optimism', 'arbitrum', 'scaling solution', 'ethereum scaling'
+    // General L2
+    'layer 2', 'layer-2', ' l2 ', 'l2s', 'l2 network',
+    
+    // Rollup tech
+    'rollup', 'optimistic rollup', 'zk-rollup', 'zk rollup',
+    'zero knowledge rollup',
+    
+    // Specific L2s
+    'optimism', 'op mainnet', 'op stack', 'optimistic',
+    'arbitrum', 'arb chain', 'arbitrum one', 'arbitrum nova',
+    'polygon zkevm', 'zksync', 'starknet', 'linea',
+    
+    // L2 concepts
+    'scaling solution', 'ethereum scaling', 'scalability layer',
+    'sidechain', 'plasma', 'state channel'
   ];
   
   if (l2Keywords.some(kw => text.includes(kw))) {
     return 'base';
   }
   
-  // DeFi (often Base-relevant)
+  // ========== ETHEREUM + L2 CONTEXT ==========
+  
+  if (text.includes('ethereum') && (
+    text.includes('layer') || text.includes('scaling') || 
+    text.includes('rollup') || text.includes('l2')
+  )) {
+    return 'base';
+  }
+  
+  // ========== DEFI (Usually Base-relevant) ==========
+  
   const defiKeywords = [
-    'defi', 'decentralized finance', 'uniswap', 'aave', 'compound',
-    'lending protocol', 'liquidity pool', 'yield', 'dex ', 'amm '
+    'defi', 'decentralized finance',
+    'uniswap', 'aave', 'compound', 'curve',
+    'lending protocol', 'liquidity pool', 'liquidity mining',
+    'yield farming', 'yield', 'staking rewards',
+    'dex ', 'decentralized exchange', 'amm ',
+    'automated market maker', 'swap protocol'
   ];
   
   if (defiKeywords.some(kw => text.includes(kw))) {
     return 'base';
   }
   
-  // Ethereum (usually Base-relevant)
+  // ========== ETHEREUM (Often Base-relevant) ==========
+  
+  // ETH currency tags
   if (currencies && currencies.length > 0) {
-    const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM');
-    if (hasETH) return 'base';
+    const hasL2Currency = currencies.some(c => 
+      c.code === 'ETH' || c.code === 'ETHEREUM' ||
+      c.code === 'OP' || c.code === 'OPTIMISM' ||
+      c.code === 'ARB' || c.code === 'ARBITRUM'
+    );
+    if (hasL2Currency) return 'base';
   }
   
-  if (text.includes('ethereum') && (text.includes('layer') || text.includes('scaling') || text.includes('defi'))) {
+  // General Ethereum with DeFi context
+  if (text.includes('ethereum') && (
+    text.includes('defi') || text.includes('protocol') || 
+    text.includes('dapp') || text.includes('smart contract')
+  )) {
     return 'base';
   }
   
-  // AI/Tech
+  // ========== NFT (Often on L2s) ==========
+  
+  if (text.includes('nft') && (
+    text.includes('layer 2') || text.includes('ethereum') ||
+    text.includes('marketplace') || text.includes('collection')
+  )) {
+    return 'base';
+  }
+  
+  // ========== CRYPTO (General - Lower Priority) ==========
+  
+  const cryptoKeywords = [
+    'crypto', 'bitcoin', 'btc ', 'blockchain',
+    'web3', 'token', 'mining', 'wallet'
+  ];
+  
+  if (cryptoKeywords.some(kw => text.includes(kw))) {
+    return 'crypto';
+  }
+  
+  // ========== AI/TECH ==========
+  
   const aiKeywords = [
-    'ai ', 'artificial intelligence', 'machine learning', 'chatgpt',
-    'openai', 'claude', 'llm', 'neural', 'deep learning'
+    'ai ', 'artificial intelligence', 'machine learning',
+    'chatgpt', 'openai', 'claude', 'llm', 'neural network'
   ];
   
   if (aiKeywords.some(kw => text.includes(kw))) {
     return 'ai';
   }
   
-  // Crypto (general)
-  const cryptoKeywords = [
-    'crypto', 'bitcoin', 'btc ', 'blockchain', 'nft', 'web3',
-    'token', 'mining', 'wallet', 'exchange'
-  ];
-  
-  if (cryptoKeywords.some(kw => text.includes(kw))) {
-    return 'crypto';
-  }
+  // ========== WORLD (Default) ==========
   
   return 'world';
 }
@@ -307,16 +376,17 @@ function formatTime(timestamp) {
 
 async function enrichWithAI(article, apiKey) {
   try {
-    const prompt = `Analyze for Base blockchain users.
+    const prompt = `Analyze this news for Base blockchain ecosystem users. Base is an Ethereum Layer 2 built by Coinbase.
 
 Title: "${article.title}"
+Content: "${article.rawContent}"
 
-JSON only (no markdown):
+Provide JSON only (no markdown):
 {
-  "summary": "2 sentence summary (80 words max)",
-  "relevanceScore": [0-100 number],
+  "summary": "2 sentence summary focused on L2/Base relevance (80 words max)",
+  "relevanceScore": [0-100, where 90-100 = Base-specific, 70-90 = L2/Ethereum, 50-70 = DeFi/Crypto],
   "vibe": "bullish" OR "bearish" OR "neutral",
-  "whyItMatters": "Why Base users care (25 words max)"
+  "whyItMatters": "Why Base/L2 users care (25 words max)"
 }`;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -344,7 +414,7 @@ JSON only (no markdown):
       summary: ai.summary || article.rawContent.substring(0, 120),
       relevanceScore: Math.min(100, Math.max(0, ai.relevanceScore || 50)),
       vibe: ['bullish', 'bearish', 'neutral'].includes(ai.vibe) ? ai.vibe : 'neutral',
-      whyItMatters: ai.whyItMatters || 'Relevant to crypto ecosystem.'
+      whyItMatters: ai.whyItMatters || 'Relevant to L2 ecosystem.'
     };
   } catch (err) {
     return {
@@ -352,7 +422,7 @@ JSON only (no markdown):
       summary: article.rawContent ? article.rawContent.substring(0, 120) : 'Summary unavailable',
       relevanceScore: 50,
       vibe: 'neutral',
-      whyItMatters: 'Stay informed about developments.'
+      whyItMatters: 'Stay informed about L2 developments.'
     };
   }
 }
