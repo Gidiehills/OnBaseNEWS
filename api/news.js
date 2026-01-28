@@ -1,5 +1,5 @@
 // api/news.js
-// FINAL VERSION - Complete with all API integrations and debugging
+// FIXED VERSION - Uses RSS proxy + Better CryptoPanic handling
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -10,7 +10,6 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // API Keys - from environment variables only
   const CRYPTO_PANIC_KEY = process.env.CRYPTO_PANIC_KEY;
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   const NEWSDATA_KEY = process.env.NEWSDATA_KEY;
@@ -26,17 +25,24 @@ export default async function handler(req, res) {
       errors: []
     };
 
-    // 1. COINBASE BLOG RSS (Best source for Base news!)
-    console.log('📰 Fetching Coinbase Blog RSS...');
+    // 1. COINBASE BLOG RSS via AllOrigins Proxy
+    console.log('📰 Fetching Coinbase Blog RSS via proxy...');
     try {
-      const coinbaseResponse = await fetch('https://blog.coinbase.com/feed');
+      const rssUrl = 'https://blog.coinbase.com/feed';
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
+      
+      const coinbaseResponse = await fetch(proxyUrl, {
+        headers: {
+          'User-Agent': 'OnBaseNews/1.0'
+        }
+      });
       
       if (coinbaseResponse.ok) {
         const rssText = await coinbaseResponse.text();
-        console.log('✅ Coinbase RSS fetched, parsing...');
+        console.log(`✅ Coinbase RSS fetched via proxy (${rssText.length} chars)`);
         
         const items = parseRSS(rssText);
-        console.log(`📄 Found ${items.length} Coinbase articles`);
+        console.log(`📄 Parsed ${items.length} Coinbase articles`);
         
         items.slice(0, 15).forEach((item, idx) => {
           const titleLower = item.title.toLowerCase();
@@ -45,7 +51,8 @@ export default async function handler(req, res) {
           // Aggressive Base detection
           const isBase = titleLower.includes('base') || descLower.includes('base') ||
                          titleLower.includes('layer 2') || titleLower.includes('l2') ||
-                         descLower.includes('base chain') || descLower.includes('base network');
+                         descLower.includes('base chain') || descLower.includes('base network') ||
+                         descLower.includes('base ecosystem');
           
           allNews.push({
             id: `coinbase_${idx}`,
@@ -64,48 +71,58 @@ export default async function handler(req, res) {
         
         debugInfo.coinbaseCount = items.length;
       } else {
-        throw new Error(`Coinbase RSS failed: ${coinbaseResponse.status}`);
+        throw new Error(`Proxy failed: ${coinbaseResponse.status}`);
       }
     } catch (err) {
       console.error('❌ Coinbase RSS error:', err.message);
       debugInfo.errors.push(`Coinbase: ${err.message}`);
     }
 
-    // 2. CRYPTOPANIC API
+    // 2. CRYPTOPANIC API - Fixed with proper filtering
     console.log('📰 Fetching CryptoPanic...');
     try {
-      const filters = ['rising', 'hot'];
+      // Try multiple endpoints
+      const endpoints = [
+        `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=rising`,
+        `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=hot`,
+        `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news`
+      ];
       
-      for (const filter of filters) {
-        const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=${filter}&page=1`;
-        const response = await fetch(url);
-        
-        if (response.ok) {
-          const data = await response.json();
+      for (const url of endpoints) {
+        try {
+          const response = await fetch(url);
           
-          if (data.results) {
-            console.log(`✅ CryptoPanic ${filter}: ${data.results.length} articles`);
+          if (response.ok) {
+            const data = await response.json();
             
-            data.results.slice(0, 10).forEach((item, idx) => {
-              const category = smartCategorize(item.title, '', item.currencies);
+            if (data.results && data.results.length > 0) {
+              console.log(`✅ CryptoPanic: ${data.results.length} articles`);
               
-              allNews.push({
-                id: `crypto_${filter}_${item.id || idx}`,
-                category: category,
-                title: item.title,
-                url: item.url,
-                source: item.source?.title || 'CryptoPanic',
-                timestamp: formatTime(item.created_at),
-                rawContent: item.title
+              data.results.slice(0, 12).forEach((item, idx) => {
+                const category = smartCategorize(item.title, '', item.currencies);
+                
+                allNews.push({
+                  id: `crypto_${Date.now()}_${idx}`,
+                  category: category,
+                  title: item.title,
+                  url: item.url,
+                  source: item.source?.title || 'CryptoPanic',
+                  timestamp: formatTime(item.created_at),
+                  rawContent: item.title
+                });
+                
+                if (category === 'base') {
+                  console.log(`  🔵 BASE NEWS: ${item.title.substring(0, 60)}...`);
+                }
+                
+                debugInfo.cryptoPanicCount++;
               });
               
-              if (category === 'base') {
-                console.log(`  🔵 BASE NEWS: ${item.title.substring(0, 60)}...`);
-              }
-              
-              debugInfo.cryptoPanicCount++;
-            });
+              break; // Stop after first successful fetch
+            }
           }
+        } catch (e) {
+          console.log(`  ⚠️  CryptoPanic endpoint failed: ${e.message}`);
         }
         
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -115,15 +132,16 @@ export default async function handler(req, res) {
       debugInfo.errors.push(`CryptoPanic: ${err.message}`);
     }
 
-    // 3. NEWSDATA.IO API (if key provided)
+    // 3. NEWSDATA.IO API
     if (NEWSDATA_KEY) {
       console.log('📰 Fetching NewsData.io...');
       try {
         const queries = [
-          'Base blockchain OR Base chain',
+          'Base blockchain OR Base chain OR Base network',
           'Coinbase layer 2 OR Coinbase L2',
-          'Ethereum layer 2',
-          'cryptocurrency',
+          'Ethereum layer 2 OR L2 scaling',
+          'DeFi OR decentralized finance',
+          'cryptocurrency news',
           'artificial intelligence'
         ];
         
@@ -165,8 +183,6 @@ export default async function handler(req, res) {
         console.error('❌ NewsData error:', err.message);
         debugInfo.errors.push(`NewsData: ${err.message}`);
       }
-    } else {
-      console.log('⚠️  NewsData key not provided, skipping...');
     }
 
     console.log(`📊 Total articles collected: ${allNews.length}`);
@@ -188,10 +204,9 @@ export default async function handler(req, res) {
 
     // Count by category
     const baseCount = uniqueNews.filter(n => n.category === 'base').length;
-    const cryptoCount = uniqueNews.filter(n => n.category === 'crypto').length;
     console.log(`📊 Category breakdown:`);
     console.log(`   Base: ${baseCount}`);
-    console.log(`   Crypto: ${cryptoCount}`);
+    console.log(`   Crypto: ${uniqueNews.filter(n => n.category === 'crypto').length}`);
     console.log(`   AI: ${uniqueNews.filter(n => n.category === 'ai').length}`);
     console.log(`   World: ${uniqueNews.filter(n => n.category === 'world').length}`);
 
@@ -204,13 +219,16 @@ export default async function handler(req, res) {
     const validNews = enrichedNews.filter(item => item !== null);
     console.log(`✅ Final processed: ${validNews.length} articles`);
 
+    const finalBaseCount = validNews.filter(n => n.category === 'base').length;
+    console.log(`🔵 FINAL BASE ARTICLES: ${finalBaseCount}`);
+
     res.status(200).json({
       success: true,
       data: validNews,
       count: validNews.length,
       debug: {
         ...debugInfo,
-        baseArticles: validNews.filter(n => n.category === 'base').length,
+        baseArticles: finalBaseCount,
         totalProcessed: validNews.length
       },
       timestamp: new Date().toISOString()
@@ -220,8 +238,7 @@ export default async function handler(req, res) {
     console.error('💥 CRITICAL ERROR:', error);
     res.status(500).json({ 
       success: false,
-      error: error.message,
-      stack: error.stack
+      error: error.message
     });
   }
 }
@@ -235,12 +252,10 @@ function parseRSS(xmlText) {
     const itemXML = match[1];
     
     const getTag = (tag) => {
-      // Handle CDATA
       const cdataRegex = new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>`);
       const cdataMatch = itemXML.match(cdataRegex);
       if (cdataMatch) return cdataMatch[1].trim();
       
-      // Handle regular tags
       const regularRegex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`);
       const regularMatch = itemXML.match(regularRegex);
       return regularMatch ? regularMatch[1].trim() : '';
@@ -260,47 +275,48 @@ function parseRSS(xmlText) {
 function smartCategorize(title, description = '', currencies = []) {
   const text = (title + ' ' + description).toLowerCase();
   
-  // BASE - Most aggressive detection
+  // BASE - Ultra aggressive detection
   if (text.includes('base chain') || text.includes('base network') || 
       text.includes('base blockchain') || text.includes('base ecosystem') ||
       text.includes('coinbase l2') || text.includes('base mainnet') ||
       text.includes('base app') || text.includes('base dapp') ||
-      (text.includes('base') && (text.includes('coinbase') || text.includes('layer 2') || text.includes('l2')))) {
+      text.includes('base protocol') || text.includes('on base') ||
+      (text.includes(' base ') && (text.includes('coinbase') || text.includes('layer') || text.includes('l2')))) {
     return 'base';
   }
   
-  // L2 / Scaling (Base-related)
+  // L2 / Scaling
   if (text.includes('layer 2') || text.includes('layer-2') || text.includes(' l2 ') ||
-      text.includes('rollup') || text.includes('optimism') || text.includes('arbitrum') ||
-      text.includes('scaling solution')) {
+      text.includes('rollup') || text.includes('optimistic') || text.includes('zk-rollup') ||
+      text.includes('scaling solution') || text.includes('ethereum scaling')) {
     return 'base';
   }
   
-  // DeFi (Base-relevant)
+  // DeFi
   if (text.includes('defi') || text.includes('decentralized finance') ||
       text.includes('uniswap') || text.includes('aave') || text.includes('compound') ||
-      text.includes('liquidity pool') || text.includes('yield farming')) {
+      text.includes('liquidity pool') || text.includes('yield farming') ||
+      text.includes('lending protocol') || text.includes('dex ')) {
     return 'base';
   }
   
-  // Ethereum (often Base-related)
+  // Ethereum (Base-related)
   if (currencies && currencies.length > 0) {
     const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM');
-    if (hasETH && (text.includes('ethereum') || text.includes('eth '))) {
-      return 'base';
-    }
+    if (hasETH) return 'base';
   }
   
   // AI/Tech
   if (text.includes('ai ') || text.includes('artificial intelligence') ||
       text.includes('machine learning') || text.includes('chatgpt') ||
-      text.includes('openai')) {
+      text.includes('openai') || text.includes('claude') || text.includes('llm')) {
     return 'ai';
   }
   
-  // Crypto (general)
+  // Crypto
   if (text.includes('crypto') || text.includes('bitcoin') || text.includes('btc ') ||
-      text.includes('ethereum') || text.includes('blockchain') || text.includes('nft')) {
+      text.includes('ethereum') || text.includes('blockchain') || text.includes('nft') ||
+      text.includes('web3')) {
     return 'crypto';
   }
   
@@ -367,9 +383,7 @@ Provide JSON only (no markdown):
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`AI error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`AI error: ${response.status}`);
 
     const data = await response.json();
     const content = data.choices[0].message.content;
