@@ -1,5 +1,5 @@
 // api/news.js
-// FIXED VERSION - Uses RSS proxy + Better CryptoPanic handling
+// ULTIMATE VERSION - Ditches problematic RSS, focuses on reliable APIs + targeted Base queries
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,96 +14,37 @@ export default async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   const NEWSDATA_KEY = process.env.NEWSDATA_KEY;
 
-  console.log('🚀 Starting news fetch...');
+  console.log('🚀 Starting news fetch (Ultimate Edition)...');
 
   try {
     const allNews = [];
-    const debugInfo = {
-      coinbaseCount: 0,
-      cryptoPanicCount: 0,
-      newsDataCount: 0,
-      errors: []
-    };
+    const debugInfo = { cryptoPanicCount: 0, newsDataCount: 0, errors: [] };
 
-    // 1. COINBASE BLOG RSS via AllOrigins Proxy
-    console.log('📰 Fetching Coinbase Blog RSS via proxy...');
+    // 1. CRYPTOPANIC - Multiple attempts with different filters
+    console.log('📰 Fetching CryptoPanic (comprehensive)...');
     try {
-      const rssUrl = 'https://blog.coinbase.com/feed';
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
+      const filters = ['rising', 'hot', 'bullish', 'important'];
+      const currencies = 'ETH,BTC,BASE,USDC';
       
-      const coinbaseResponse = await fetch(proxyUrl, {
-        headers: {
-          'User-Agent': 'OnBaseNews/1.0'
-        }
-      });
-      
-      if (coinbaseResponse.ok) {
-        const rssText = await coinbaseResponse.text();
-        console.log(`✅ Coinbase RSS fetched via proxy (${rssText.length} chars)`);
-        
-        const items = parseRSS(rssText);
-        console.log(`📄 Parsed ${items.length} Coinbase articles`);
-        
-        items.slice(0, 15).forEach((item, idx) => {
-          const titleLower = item.title.toLowerCase();
-          const descLower = (item.description || '').toLowerCase();
-          
-          // Aggressive Base detection
-          const isBase = titleLower.includes('base') || descLower.includes('base') ||
-                         titleLower.includes('layer 2') || titleLower.includes('l2') ||
-                         descLower.includes('base chain') || descLower.includes('base network') ||
-                         descLower.includes('base ecosystem');
-          
-          allNews.push({
-            id: `coinbase_${idx}`,
-            category: isBase ? 'base' : 'crypto',
-            title: item.title,
-            url: item.link,
-            source: 'Coinbase Blog',
-            timestamp: formatTime(item.pubDate),
-            rawContent: item.description || item.title
-          });
-          
-          if (isBase) {
-            console.log(`  🔵 BASE NEWS: ${item.title.substring(0, 60)}...`);
-          }
-        });
-        
-        debugInfo.coinbaseCount = items.length;
-      } else {
-        throw new Error(`Proxy failed: ${coinbaseResponse.status}`);
-      }
-    } catch (err) {
-      console.error('❌ Coinbase RSS error:', err.message);
-      debugInfo.errors.push(`Coinbase: ${err.message}`);
-    }
-
-    // 2. CRYPTOPANIC API - Fixed with proper filtering
-    console.log('📰 Fetching CryptoPanic...');
-    try {
-      // Try multiple endpoints
-      const endpoints = [
-        `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=rising`,
-        `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=hot`,
-        `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news`
-      ];
-      
-      for (const url of endpoints) {
+      for (const filter of filters) {
         try {
-          const response = await fetch(url);
+          const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=${filter}&currencies=${currencies}`;
+          const response = await fetch(url, { 
+            headers: { 'User-Agent': 'OnBaseNews/1.0' } 
+          });
           
           if (response.ok) {
             const data = await response.json();
             
             if (data.results && data.results.length > 0) {
-              console.log(`✅ CryptoPanic: ${data.results.length} articles`);
+              console.log(`✅ CryptoPanic ${filter}: ${data.results.length} articles`);
               
-              data.results.slice(0, 12).forEach((item, idx) => {
-                const category = smartCategorize(item.title, '', item.currencies);
+              data.results.slice(0, 10).forEach((item, idx) => {
+                const category = ultraSmartCategorize(item.title, '', item.currencies);
                 
                 allNews.push({
-                  id: `crypto_${Date.now()}_${idx}`,
-                  category: category,
+                  id: `cp_${filter}_${Date.now()}_${idx}`,
+                  category,
                   title: item.title,
                   url: item.url,
                   source: item.source?.title || 'CryptoPanic',
@@ -112,7 +53,7 @@ export default async function handler(req, res) {
                 });
                 
                 if (category === 'base') {
-                  console.log(`  🔵 BASE NEWS: ${item.title.substring(0, 60)}...`);
+                  console.log(`  🔵 BASE: ${item.title.substring(0, 60)}...`);
                 }
                 
                 debugInfo.cryptoPanicCount++;
@@ -122,105 +63,125 @@ export default async function handler(req, res) {
             }
           }
         } catch (e) {
-          console.log(`  ⚠️  CryptoPanic endpoint failed: ${e.message}`);
+          console.log(`  ⚠️  CryptoPanic ${filter} failed: ${e.message}`);
         }
         
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 400));
       }
     } catch (err) {
       console.error('❌ CryptoPanic error:', err.message);
       debugInfo.errors.push(`CryptoPanic: ${err.message}`);
     }
 
-    // 3. NEWSDATA.IO API
+    // 2. NEWSDATA.IO - Hyper-targeted Base queries
     if (NEWSDATA_KEY) {
-      console.log('📰 Fetching NewsData.io...');
+      console.log('📰 Fetching NewsData (Base-focused)...');
       try {
         const queries = [
-          'Base blockchain OR Base chain OR Base network',
-          'Coinbase layer 2 OR Coinbase L2',
-          'Ethereum layer 2 OR L2 scaling',
-          'DeFi OR decentralized finance',
-          'cryptocurrency news',
-          'artificial intelligence'
+          // Base-specific
+          'Base blockchain Coinbase',
+          'Base network layer 2',
+          'Jesse Pollak Base',
+          'Base ecosystem DeFi',
+          // L2 general
+          'Ethereum layer 2 scaling',
+          'L2 rollup optimism arbitrum',
+          // DeFi (often Base-relevant)
+          'DeFi Uniswap Aave protocol',
+          'decentralized exchange liquidity',
+          // Crypto general
+          'cryptocurrency Bitcoin Ethereum',
+          'blockchain adoption',
+          // AI/Tech
+          'artificial intelligence blockchain',
+          'AI crypto technology'
         ];
         
         for (const query of queries) {
-          const url = `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_KEY}&q=${encodeURIComponent(query)}&language=en&size=3`;
-          const response = await fetch(url);
-          
-          if (response.ok) {
-            const data = await response.json();
+          try {
+            const url = `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_KEY}&q=${encodeURIComponent(query)}&language=en&size=2`;
+            const response = await fetch(url);
             
-            if (data.results) {
-              console.log(`✅ NewsData "${query}": ${data.results.length} articles`);
+            if (response.ok) {
+              const data = await response.json();
               
-              data.results.forEach((item, idx) => {
-                const category = smartCategorize(item.title, item.description);
+              if (data.results && data.results.length > 0) {
+                console.log(`✅ NewsData "${query}": ${data.results.length} articles`);
                 
-                allNews.push({
-                  id: `news_${Date.now()}_${idx}`,
-                  category: category,
-                  title: item.title,
-                  url: item.link,
-                  source: item.source_name || 'NewsData',
-                  timestamp: formatTime(item.pubDate),
-                  rawContent: item.description || item.title
+                data.results.forEach((item, idx) => {
+                  const category = ultraSmartCategorize(item.title, item.description);
+                  
+                  allNews.push({
+                    id: `nd_${Date.now()}_${idx}`,
+                    category,
+                    title: item.title,
+                    url: item.link,
+                    source: item.source_name || 'NewsData',
+                    timestamp: formatTime(item.pubDate),
+                    rawContent: item.description || item.title
+                  });
+                  
+                  if (category === 'base') {
+                    console.log(`  🔵 BASE: ${item.title.substring(0, 60)}...`);
+                  }
+                  
+                  debugInfo.newsDataCount++;
                 });
-                
-                if (category === 'base') {
-                  console.log(`  🔵 BASE NEWS: ${item.title.substring(0, 60)}...`);
-                }
-                
-                debugInfo.newsDataCount++;
-              });
+              }
             }
+          } catch (e) {
+            console.log(`  ⚠️  NewsData query failed: ${e.message}`);
           }
           
-          await new Promise(resolve => setTimeout(resolve, 600));
+          await new Promise(resolve => setTimeout(resolve, 650));
         }
       } catch (err) {
         console.error('❌ NewsData error:', err.message);
         debugInfo.errors.push(`NewsData: ${err.message}`);
       }
+    } else {
+      console.log('⚠️  NewsData API key not provided - limited Base coverage');
     }
 
-    console.log(`📊 Total articles collected: ${allNews.length}`);
-    console.log(`   Coinbase: ${debugInfo.coinbaseCount}`);
+    console.log(`📊 Total collected: ${allNews.length}`);
     console.log(`   CryptoPanic: ${debugInfo.cryptoPanicCount}`);
     console.log(`   NewsData: ${debugInfo.newsDataCount}`);
 
     if (allNews.length === 0) {
       return res.status(500).json({ 
         success: false,
-        error: 'No news found',
+        error: 'No news found. Check API keys.',
         debug: debugInfo
       });
     }
 
     // Remove duplicates
     const uniqueNews = removeDuplicates(allNews);
-    console.log(`🔧 After deduplication: ${uniqueNews.length} articles`);
+    console.log(`🔧 After dedup: ${uniqueNews.length}`);
 
-    // Count by category
+    // Category breakdown
     const baseCount = uniqueNews.filter(n => n.category === 'base').length;
-    console.log(`📊 Category breakdown:`);
-    console.log(`   Base: ${baseCount}`);
-    console.log(`   Crypto: ${uniqueNews.filter(n => n.category === 'crypto').length}`);
-    console.log(`   AI: ${uniqueNews.filter(n => n.category === 'ai').length}`);
-    console.log(`   World: ${uniqueNews.filter(n => n.category === 'world').length}`);
+    const cryptoCount = uniqueNews.filter(n => n.category === 'crypto').length;
+    const aiCount = uniqueNews.filter(n => n.category === 'ai').length;
+    const worldCount = uniqueNews.filter(n => n.category === 'world').length;
+    
+    console.log(`📊 Categories:`);
+    console.log(`   🔵 Base: ${baseCount}`);
+    console.log(`   ₿ Crypto: ${cryptoCount}`);
+    console.log(`   🤖 AI: ${aiCount}`);
+    console.log(`   🌍 World: ${worldCount}`);
 
-    // Process with AI
-    console.log('🤖 Processing with AI...');
+    // AI enrichment
+    console.log('🤖 AI processing...');
     const enrichedNews = await Promise.all(
       uniqueNews.map(article => enrichWithAI(article, GROQ_API_KEY))
     );
 
     const validNews = enrichedNews.filter(item => item !== null);
-    console.log(`✅ Final processed: ${validNews.length} articles`);
-
     const finalBaseCount = validNews.filter(n => n.category === 'base').length;
-    console.log(`🔵 FINAL BASE ARTICLES: ${finalBaseCount}`);
+    
+    console.log(`✅ Final: ${validNews.length} articles`);
+    console.log(`🔵 FINAL BASE COUNT: ${finalBaseCount}`);
 
     res.status(200).json({
       success: true,
@@ -229,94 +190,86 @@ export default async function handler(req, res) {
       debug: {
         ...debugInfo,
         baseArticles: finalBaseCount,
-        totalProcessed: validNews.length
+        cryptoArticles: validNews.filter(n => n.category === 'crypto').length,
+        aiArticles: validNews.filter(n => n.category === 'ai').length,
+        worldArticles: validNews.filter(n => n.category === 'world').length
       },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('💥 CRITICAL ERROR:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message
-    });
+    console.error('💥 CRITICAL:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 }
 
-function parseRSS(xmlText) {
-  const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let match;
-  
-  while ((match = itemRegex.exec(xmlText)) !== null) {
-    const itemXML = match[1];
-    
-    const getTag = (tag) => {
-      const cdataRegex = new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>`);
-      const cdataMatch = itemXML.match(cdataRegex);
-      if (cdataMatch) return cdataMatch[1].trim();
-      
-      const regularRegex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`);
-      const regularMatch = itemXML.match(regularRegex);
-      return regularMatch ? regularMatch[1].trim() : '';
-    };
-    
-    items.push({
-      title: getTag('title'),
-      link: getTag('link'),
-      description: getTag('description'),
-      pubDate: getTag('pubDate')
-    });
-  }
-  
-  return items;
-}
-
-function smartCategorize(title, description = '', currencies = []) {
+function ultraSmartCategorize(title, description = '', currencies = []) {
   const text = (title + ' ' + description).toLowerCase();
   
-  // BASE - Ultra aggressive detection
-  if (text.includes('base chain') || text.includes('base network') || 
-      text.includes('base blockchain') || text.includes('base ecosystem') ||
-      text.includes('coinbase l2') || text.includes('base mainnet') ||
-      text.includes('base app') || text.includes('base dapp') ||
-      text.includes('base protocol') || text.includes('on base') ||
-      (text.includes(' base ') && (text.includes('coinbase') || text.includes('layer') || text.includes('l2')))) {
+  // BASE - Maximum aggressive
+  const baseKeywords = [
+    'base chain', 'base network', 'base blockchain', 'base ecosystem',
+    'base mainnet', 'base app', 'base dapp', 'base protocol',
+    'jesse pollak', 'on base', 'base token', 'basecamp',
+    'coinbase l2', 'coinbase layer 2', 'coinbase base'
+  ];
+  
+  if (baseKeywords.some(kw => text.includes(kw))) {
     return 'base';
   }
   
-  // L2 / Scaling
-  if (text.includes('layer 2') || text.includes('layer-2') || text.includes(' l2 ') ||
-      text.includes('rollup') || text.includes('optimistic') || text.includes('zk-rollup') ||
-      text.includes('scaling solution') || text.includes('ethereum scaling')) {
+  // Base-related combinations
+  if ((text.includes('base') && (text.includes('coinbase') || text.includes('layer') || text.includes('l2')))) {
     return 'base';
   }
   
-  // DeFi
-  if (text.includes('defi') || text.includes('decentralized finance') ||
-      text.includes('uniswap') || text.includes('aave') || text.includes('compound') ||
-      text.includes('liquidity pool') || text.includes('yield farming') ||
-      text.includes('lending protocol') || text.includes('dex ')) {
+  // L2 / Scaling (all Base-related)
+  const l2Keywords = [
+    'layer 2', 'layer-2', ' l2 ', 'rollup', 'optimistic', 'zk-rollup',
+    'optimism', 'arbitrum', 'scaling solution', 'ethereum scaling'
+  ];
+  
+  if (l2Keywords.some(kw => text.includes(kw))) {
     return 'base';
   }
   
-  // Ethereum (Base-related)
+  // DeFi (often Base-relevant)
+  const defiKeywords = [
+    'defi', 'decentralized finance', 'uniswap', 'aave', 'compound',
+    'lending protocol', 'liquidity pool', 'yield', 'dex ', 'amm '
+  ];
+  
+  if (defiKeywords.some(kw => text.includes(kw))) {
+    return 'base';
+  }
+  
+  // Ethereum (usually Base-relevant)
   if (currencies && currencies.length > 0) {
     const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM');
     if (hasETH) return 'base';
   }
   
+  if (text.includes('ethereum') && (text.includes('layer') || text.includes('scaling') || text.includes('defi'))) {
+    return 'base';
+  }
+  
   // AI/Tech
-  if (text.includes('ai ') || text.includes('artificial intelligence') ||
-      text.includes('machine learning') || text.includes('chatgpt') ||
-      text.includes('openai') || text.includes('claude') || text.includes('llm')) {
+  const aiKeywords = [
+    'ai ', 'artificial intelligence', 'machine learning', 'chatgpt',
+    'openai', 'claude', 'llm', 'neural', 'deep learning'
+  ];
+  
+  if (aiKeywords.some(kw => text.includes(kw))) {
     return 'ai';
   }
   
-  // Crypto
-  if (text.includes('crypto') || text.includes('bitcoin') || text.includes('btc ') ||
-      text.includes('ethereum') || text.includes('blockchain') || text.includes('nft') ||
-      text.includes('web3')) {
+  // Crypto (general)
+  const cryptoKeywords = [
+    'crypto', 'bitcoin', 'btc ', 'blockchain', 'nft', 'web3',
+    'token', 'mining', 'wallet', 'exchange'
+  ];
+  
+  if (cryptoKeywords.some(kw => text.includes(kw))) {
     return 'crypto';
   }
   
@@ -326,7 +279,7 @@ function smartCategorize(title, description = '', currencies = []) {
 function removeDuplicates(articles) {
   const seen = new Set();
   return articles.filter(article => {
-    const key = article.title.toLowerCase().substring(0, 50).replace(/[^a-z0-9]/g, '');
+    const key = article.title.toLowerCase().substring(0, 40).replace(/[^a-z0-9]/g, '');
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -340,12 +293,10 @@ function formatTime(timestamp) {
     
     const now = new Date();
     const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
     
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 1) return 'Just now';
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString();
@@ -356,17 +307,16 @@ function formatTime(timestamp) {
 
 async function enrichWithAI(article, apiKey) {
   try {
-    const prompt = `Analyze this news for Base blockchain users.
+    const prompt = `Analyze for Base blockchain users.
 
 Title: "${article.title}"
-Content: "${article.rawContent}"
 
-Provide JSON only (no markdown):
+JSON only (no markdown):
 {
-  "summary": "2-3 sentence summary (max 100 words)",
-  "relevanceScore": [number 0-100],
+  "summary": "2 sentence summary (80 words max)",
+  "relevanceScore": [0-100 number],
   "vibe": "bullish" OR "bearish" OR "neutral",
-  "whyItMatters": "Why Base users care (max 30 words)"
+  "whyItMatters": "Why Base users care (25 words max)"
 }`;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -378,33 +328,31 @@ Provide JSON only (no markdown):
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: 500
+        temperature: 0.2,
+        max_tokens: 400
       })
     });
 
-    if (!response.ok) throw new Error(`AI error: ${response.status}`);
+    if (!response.ok) throw new Error(`AI: ${response.status}`);
 
     const data = await response.json();
-    const content = data.choices[0].message.content;
-    const cleanContent = content.replace(/```json|```/g, '').trim();
-    const aiAnalysis = JSON.parse(cleanContent);
+    const content = data.choices[0].message.content.replace(/```json|```/g, '').trim();
+    const ai = JSON.parse(content);
 
     return {
       ...article,
-      summary: aiAnalysis.summary || article.rawContent.substring(0, 150),
-      relevanceScore: Math.min(100, Math.max(0, aiAnalysis.relevanceScore || 50)),
-      vibe: ['bullish', 'bearish', 'neutral'].includes(aiAnalysis.vibe) ? aiAnalysis.vibe : 'neutral',
-      whyItMatters: aiAnalysis.whyItMatters || 'Relevant to ecosystem.'
+      summary: ai.summary || article.rawContent.substring(0, 120),
+      relevanceScore: Math.min(100, Math.max(0, ai.relevanceScore || 50)),
+      vibe: ['bullish', 'bearish', 'neutral'].includes(ai.vibe) ? ai.vibe : 'neutral',
+      whyItMatters: ai.whyItMatters || 'Relevant to crypto ecosystem.'
     };
   } catch (err) {
-    console.error(`AI error for "${article.title}":`, err.message);
     return {
       ...article,
-      summary: article.rawContent ? article.rawContent.substring(0, 150) : 'Summary unavailable',
+      summary: article.rawContent ? article.rawContent.substring(0, 120) : 'Summary unavailable',
       relevanceScore: 50,
       vibe: 'neutral',
-      whyItMatters: 'Stay informed about crypto developments.'
+      whyItMatters: 'Stay informed about developments.'
     };
   }
 }
