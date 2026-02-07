@@ -42,19 +42,22 @@ export default async function handler(req, res) {
         console.log(`✅ Coinbase RSS: ${items.length} articles`);
         
         items.slice(0, 20).forEach((item, idx) => {
-          const category = baseFirstCategorize(item.title, item.description || '');
-          
-          allNews.push({
-            id: `rss_${idx}_${Date.now()}`,
-            category,
-            title: item.title,
-            url: item.link,
-            source: 'Coinbase Blog',
-            timestamp: formatTime(item.pubDate),
-            rawContent: item.description || item.title
-          });
-          
-          debugInfo.rssCount++;
+          // Only add if we have at least a title and link
+          if (item.title && item.link) {
+            const category = baseFirstCategorize(item.title, item.description || '');
+            
+            allNews.push({
+              id: `rss_${idx}_${Date.now()}`,
+              category,
+              title: item.title,
+              url: item.link,
+              source: 'Coinbase Blog',
+              timestamp: formatTime(item.pubDate),
+              rawContent: item.description || item.title || ''
+            });
+            
+            debugInfo.rssCount++;
+          }
         });
       } else {
         throw new Error(`RSS fetch failed: ${response.status}`);
@@ -80,19 +83,22 @@ export default async function handler(req, res) {
             console.log(`✅ CryptoPanic: ${data.results.length} articles`);
             
             data.results.slice(0, 15).forEach((item, idx) => {
-              const category = baseFirstCategorize(item.title, '', item.currencies);
-              
-              allNews.push({
-                id: `cp_${Date.now()}_${idx}`,
-                category,
-                title: item.title,
-                url: item.url,
-                source: item.source?.title || 'CryptoPanic',
-                timestamp: formatTime(item.created_at),
-                rawContent: item.title
-              });
-              
-              debugInfo.cryptoPanicCount++;
+              // Only add if we have at least a title and url
+              if (item.title && item.url) {
+                const category = baseFirstCategorize(item.title, '', item.currencies);
+                
+                allNews.push({
+                  id: `cp_${Date.now()}_${idx}`,
+                  category,
+                  title: item.title,
+                  url: item.url,
+                  source: item.source?.title || 'CryptoPanic',
+                  timestamp: formatTime(item.created_at),
+                  rawContent: item.title || ''
+                });
+                
+                debugInfo.cryptoPanicCount++;
+              }
             });
           }
         }
@@ -130,19 +136,22 @@ export default async function handler(req, res) {
                 console.log(`✅ NewsData "${query}": ${data.results.length} articles`);
                 
                 data.results.forEach((item, idx) => {
-                  const category = baseFirstCategorize(item.title, item.description || '');
-                  
-                  allNews.push({
-                    id: `nd_${Date.now()}_${idx}`,
-                    category,
-                    title: item.title,
-                    url: item.link,
-                    source: item.source_name || 'NewsData',
-                    timestamp: formatTime(item.pubDate),
-                    rawContent: item.description || item.title
-                  });
-                  
-                  debugInfo.newsDataCount++;
+                  // Only add if we have at least a title and link
+                  if (item.title && item.link) {
+                    const category = baseFirstCategorize(item.title, item.description || '');
+                    
+                    allNews.push({
+                      id: `nd_${Date.now()}_${idx}`,
+                      category,
+                      title: item.title,
+                      url: item.link,
+                      source: item.source_name || 'NewsData',
+                      timestamp: formatTime(item.pubDate),
+                      rawContent: item.description || item.title || ''
+                    });
+                    
+                    debugInfo.newsDataCount++;
+                  }
                 });
               }
             } else {
@@ -185,24 +194,42 @@ export default async function handler(req, res) {
     console.log(`   🤖 AI: ${uniqueNews.filter(n => n.category === 'ai').length}`);
     console.log(`   🌍 World: ${uniqueNews.filter(n => n.category === 'world').length}`);
 
-    // AI enrichment
+    // AI enrichment - Ensure all articles have required fields
     let validNews;
     if (GROQ_API_KEY) {
       console.log('🤖 AI processing...');
       const enrichedNews = await Promise.all(
         uniqueNews.map(article => enrichWithAI(article, GROQ_API_KEY))
       );
-      validNews = enrichedNews.filter(item => item !== null);
+      validNews = enrichedNews
+        .filter(item => item !== null)
+        .map(article => ({
+          ...article,
+          summary: article.summary || article.rawContent?.substring(0, 120) || 'Summary unavailable',
+          relevanceScore: typeof article.relevanceScore === 'number' ? article.relevanceScore : 50,
+          vibe: article.vibe || 'neutral',
+          whyItMatters: article.whyItMatters || 'Stay informed about L2 developments.'
+        }));
     } else {
       console.log('⚠️  Groq API key not provided, skipping AI enrichment...');
       validNews = uniqueNews.map(article => ({
         ...article,
-        summary: article.rawContent ? article.rawContent.substring(0, 120) : 'Summary unavailable',
+        summary: article.rawContent ? article.rawContent.substring(0, 120) : article.title || 'Summary unavailable',
         relevanceScore: 50,
         vibe: 'neutral',
         whyItMatters: 'Stay informed about L2 developments.'
       }));
     }
+    
+    // Final validation - ensure all required fields exist
+    validNews = validNews.filter(article => 
+      article && 
+      article.title && 
+      article.url && 
+      article.category &&
+      article.summary &&
+      typeof article.relevanceScore === 'number'
+    );
     const finalBaseCount = validNews.filter(n => n.category === 'base').length;
     
     console.log(`✅ Final: ${validNews.length} articles`);
@@ -314,46 +341,45 @@ function baseFirstCategorize(title, description = '', currencies = []) {
     return 'base';
   }
   
-  // ========== DEFI (Usually Base-relevant) ==========
+  // ========== DEFI (Only if L2-related) ==========
   
-  const defiKeywords = [
-    'defi', 'decentralized finance',
-    'uniswap', 'aave', 'compound', 'curve',
-    'lending protocol', 'liquidity pool', 'liquidity mining',
-    'yield farming', 'yield', 'staking rewards',
-    'dex ', 'decentralized exchange', 'amm ',
-    'automated market maker', 'swap protocol'
-  ];
-  
-  if (defiKeywords.some(kw => text.includes(kw))) {
-    return 'base';
+  if (text.includes('defi') || text.includes('decentralized finance')) {
+    // Only categorize as base if it mentions L2/Base context
+    if (text.includes('layer 2') || text.includes('l2') || text.includes('base') || text.includes('ethereum')) {
+      return 'base';
+    }
+    return 'crypto'; // Otherwise it's general crypto
   }
   
-  // ========== ETHEREUM (Often Base-relevant) ==========
+  // ========== ETHEREUM (Only if L2-related) ==========
   
-  // ETH currency tags
+  // ETH currency tags - only if explicitly L2-related
   if (currencies && currencies.length > 0) {
     const hasL2Currency = currencies.some(c => 
-      c.code === 'ETH' || c.code === 'ETHEREUM' ||
       c.code === 'OP' || c.code === 'OPTIMISM' ||
       c.code === 'ARB' || c.code === 'ARBITRUM'
     );
     if (hasL2Currency) return 'base';
+    
+    // ETH alone doesn't mean Base - need L2 context
+    const hasETH = currencies.some(c => c.code === 'ETH' || c.code === 'ETHEREUM');
+    if (hasETH && (text.includes('layer 2') || text.includes('l2') || text.includes('base'))) {
+      return 'base';
+    }
   }
   
-  // General Ethereum with DeFi context
+  // General Ethereum - only Base if L2 context
   if (text.includes('ethereum') && (
-    text.includes('defi') || text.includes('protocol') || 
-    text.includes('dapp') || text.includes('smart contract')
+    text.includes('layer 2') || text.includes('l2') || text.includes('base') ||
+    (text.includes('defi') && (text.includes('layer') || text.includes('scaling')))
   )) {
     return 'base';
   }
   
-  // ========== NFT (Often on L2s) ==========
+  // ========== NFT (Only if L2-related) ==========
   
   if (text.includes('nft') && (
-    text.includes('layer 2') || text.includes('ethereum') ||
-    text.includes('marketplace') || text.includes('collection')
+    text.includes('layer 2') || text.includes('l2') || text.includes('base')
   )) {
     return 'base';
   }
@@ -362,7 +388,10 @@ function baseFirstCategorize(title, description = '', currencies = []) {
   
   const cryptoKeywords = [
     'crypto', 'bitcoin', 'btc ', 'blockchain',
-    'web3', 'token', 'mining', 'wallet'
+    'web3', 'token', 'mining', 'wallet',
+    'ethereum', 'eth ', 'defi', 'nft',
+    'altcoin', 'stablecoin', 'exchange',
+    'trading', 'market', 'price'
   ];
   
   if (cryptoKeywords.some(kw => text.includes(kw))) {
@@ -461,15 +490,16 @@ Provide JSON only (no markdown):
 
     return {
       ...article,
-      summary: ai.summary || article.rawContent.substring(0, 120),
+      summary: ai.summary || article.rawContent?.substring(0, 120) || article.title || 'Summary unavailable',
       relevanceScore: Math.min(100, Math.max(0, ai.relevanceScore || 50)),
       vibe: ['bullish', 'bearish', 'neutral'].includes(ai.vibe) ? ai.vibe : 'neutral',
       whyItMatters: ai.whyItMatters || 'Relevant to L2 ecosystem.'
     };
   } catch (err) {
+    console.error(`AI enrichment error for "${article.title}":`, err.message);
     return {
       ...article,
-      summary: article.rawContent ? article.rawContent.substring(0, 120) : 'Summary unavailable',
+      summary: article.rawContent ? article.rawContent.substring(0, 120) : article.title || 'Summary unavailable',
       relevanceScore: 50,
       vibe: 'neutral',
       whyItMatters: 'Stay informed about L2 developments.'
