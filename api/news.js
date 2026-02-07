@@ -15,62 +15,87 @@ export default async function handler(req, res) {
   const NEWSDATA_KEY = process.env.NEWSDATA_KEY;
 
   console.log('🔵 Starting BASE-FOCUSED news fetch...');
+  console.log(`🔑 API Keys: CryptoPanic=${!!CRYPTO_PANIC_KEY}, NewsData=${!!NEWSDATA_KEY}, Groq=${!!GROQ_API_KEY}`);
 
   try {
     const allNews = [];
     const debugInfo = { cryptoPanicCount: 0, newsDataCount: 0, errors: [] };
 
     // 1. CRYPTOPANIC - Ethereum focused (Base runs on ETH)
-    console.log('📰 Fetching CryptoPanic (ETH + L2 focus)...');
-    try {
-      const filters = ['rising', 'hot', 'important'];
-      
-      for (const filter of filters) {
-        try {
-          // Focus on ETH, OP, ARB - all L2-relevant
-          const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=${filter}&currencies=ETH,OP,ARB`;
-          const response = await fetch(url, { 
-            headers: { 'User-Agent': 'OnBaseNews/1.0' } 
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
+    if (CRYPTO_PANIC_KEY) {
+      console.log('📰 Fetching CryptoPanic (ETH + L2 focus)...');
+      try {
+        const filters = ['rising', 'hot', 'important'];
+        
+        for (const filter of filters) {
+          try {
+            // Try with currency filter first, then without if no results
+            let url = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=${filter}&currencies=ETH,OP,ARB`;
+            let response = await fetch(url, { 
+              headers: { 'User-Agent': 'OnBaseNews/1.0' } 
+            });
             
-            if (data.results && data.results.length > 0) {
-              console.log(`✅ CryptoPanic ${filter}: ${data.results.length} articles`);
+            if (response.ok) {
+              const data = await response.json();
               
-              data.results.slice(0, 12).forEach((item, idx) => {
-                const category = baseFirstCategorize(item.title, '', item.currencies);
+              // If no results with currency filter, try without filter
+              if (!data.results || data.results.length === 0) {
+                console.log(`  ⚠️  CryptoPanic ${filter} with currency filter returned no results, trying without filter...`);
+                url = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTO_PANIC_KEY}&public=true&kind=news&filter=${filter}`;
+                response = await fetch(url, { 
+                  headers: { 'User-Agent': 'OnBaseNews/1.0' } 
+                });
+                if (response.ok) {
+                  const fallbackData = await response.json();
+                  if (fallbackData.results && fallbackData.results.length > 0) {
+                    data.results = fallbackData.results;
+                  }
+                }
+              }
+              
+              if (data.results && data.results.length > 0) {
+                console.log(`✅ CryptoPanic ${filter}: ${data.results.length} articles`);
                 
-                allNews.push({
-                  id: `cp_${filter}_${Date.now()}_${idx}`,
-                  category,
-                  title: item.title,
-                  url: item.url,
-                  source: item.source?.title || 'CryptoPanic',
-                  timestamp: formatTime(item.created_at),
-                  rawContent: item.title
+                data.results.slice(0, 12).forEach((item, idx) => {
+                  const category = baseFirstCategorize(item.title, '', item.currencies);
+                  
+                  allNews.push({
+                    id: `cp_${filter}_${Date.now()}_${idx}`,
+                    category,
+                    title: item.title,
+                    url: item.url,
+                    source: item.source?.title || 'CryptoPanic',
+                    timestamp: formatTime(item.created_at),
+                    rawContent: item.title
+                  });
+                  
+                  if (category === 'base') {
+                    console.log(`  🔵 BASE: ${item.title.substring(0, 60)}...`);
+                  }
+                  
+                  debugInfo.cryptoPanicCount++;
                 });
                 
-                if (category === 'base') {
-                  console.log(`  🔵 BASE: ${item.title.substring(0, 60)}...`);
-                }
-                
-                debugInfo.cryptoPanicCount++;
-              });
-              
-              break;
+                break;
+              } else {
+                console.log(`  ⚠️  CryptoPanic ${filter}: No results found`);
+              }
+            } else {
+              console.log(`  ⚠️  CryptoPanic ${filter} HTTP error: ${response.status}`);
             }
+          } catch (e) {
+            console.log(`  ⚠️  CryptoPanic ${filter} failed: ${e.message}`);
           }
-        } catch (e) {
-          console.log(`  ⚠️  CryptoPanic ${filter} failed: ${e.message}`);
+          
+          await new Promise(resolve => setTimeout(resolve, 400));
         }
-        
-        await new Promise(resolve => setTimeout(resolve, 400));
+      } catch (err) {
+        console.error('❌ CryptoPanic error:', err.message);
+        debugInfo.errors.push(`CryptoPanic: ${err.message}`);
       }
-    } catch (err) {
-      console.error('❌ CryptoPanic error:', err.message);
-      debugInfo.errors.push(`CryptoPanic: ${err.message}`);
+    } else {
+      console.log('⚠️  CryptoPanic API key not provided, skipping...');
+      debugInfo.errors.push('CryptoPanic: API key missing');
     }
 
     // 2. NEWSDATA.IO - BASE & L2 HYPER-FOCUSED
@@ -80,54 +105,55 @@ export default async function handler(req, res) {
         const queries = [
           // BASE-SPECIFIC (highest priority)
           'Base blockchain',
-          'Base chain network',
-          'Coinbase Base layer 2',
-          'Base ecosystem apps',
-          'Jesse Pollak Base',
-          'Base DeFi protocol',
-          'Base NFT marketplace',
+          'Base chain',
+          'Coinbase Base',
+          'Base ecosystem',
+          'Base DeFi',
+          'Base NFT',
           
           // COINBASE (Base's parent)
           'Coinbase layer 2',
-          'Coinbase L2 network',
+          'Coinbase L2',
           'Coinbase blockchain',
           
           // LAYER 2 GENERAL (Optimism, Arbitrum, etc)
-          'Optimism OP Mainnet',
-          'Arbitrum ARB blockchain',
-          'layer 2 Ethereum scaling',
-          'Optimistic rollup',
-          'ZK rollup layer 2',
-          'L2 scaling solution',
+          'Optimism',
+          'Arbitrum',
+          'layer 2 Ethereum',
+          'Ethereum scaling',
+          'L2 blockchain',
           
           // ETHEREUM L2 ECOSYSTEM
-          'Ethereum layer 2 DeFi',
-          'Ethereum L2 adoption',
-          'Ethereum rollup technology',
+          'Ethereum layer 2',
+          'Ethereum L2',
+          'Ethereum rollup',
           
           // DEFI ON L2s
           'DeFi layer 2',
-          'Uniswap layer 2',
-          'Aave Optimism Arbitrum',
+          'Uniswap',
+          'Aave',
           
-          // Only 2 non-L2 queries for balance
-          'cryptocurrency Ethereum',
-          'blockchain technology'
+          // BROADER QUERIES
+          'Ethereum',
+          'cryptocurrency',
+          'blockchain'
         ];
         
         for (const query of queries) {
           try {
-            const url = `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_KEY}&q=${encodeURIComponent(query)}&language=en&size=2`;
+            const url = `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_KEY}&q=${encodeURIComponent(query)}&language=en&size=3`;
             const response = await fetch(url);
             
             if (response.ok) {
               const data = await response.json();
               
-              if (data.results && data.results.length > 0) {
+              if (data.status === 'error') {
+                console.log(`  ⚠️  NewsData "${query}" API error: ${data.message || 'Unknown error'}`);
+              } else if (data.results && data.results.length > 0) {
                 console.log(`✅ NewsData "${query}": ${data.results.length} articles`);
                 
                 data.results.forEach((item, idx) => {
-                  const category = baseFirstCategorize(item.title, item.description);
+                  const category = baseFirstCategorize(item.title, item.description || '');
                   
                   allNews.push({
                     id: `nd_${Date.now()}_${idx}`,
@@ -145,10 +171,15 @@ export default async function handler(req, res) {
                   
                   debugInfo.newsDataCount++;
                 });
+              } else {
+                console.log(`  ⚠️  NewsData "${query}": No results`);
               }
+            } else {
+              const errorText = await response.text().catch(() => 'Unknown error');
+              console.log(`  ⚠️  NewsData "${query}" HTTP ${response.status}: ${errorText.substring(0, 100)}`);
             }
           } catch (e) {
-            console.log(`  ⚠️  NewsData "${query}" failed`);
+            console.log(`  ⚠️  NewsData "${query}" failed: ${e.message}`);
           }
           
           await new Promise(resolve => setTimeout(resolve, 700));
@@ -186,12 +217,23 @@ export default async function handler(req, res) {
     console.log(`   🌍 World: ${uniqueNews.filter(n => n.category === 'world').length}`);
 
     // AI enrichment
-    console.log('🤖 AI processing...');
-    const enrichedNews = await Promise.all(
-      uniqueNews.map(article => enrichWithAI(article, GROQ_API_KEY))
-    );
-
-    const validNews = enrichedNews.filter(item => item !== null);
+    let validNews;
+    if (GROQ_API_KEY) {
+      console.log('🤖 AI processing...');
+      const enrichedNews = await Promise.all(
+        uniqueNews.map(article => enrichWithAI(article, GROQ_API_KEY))
+      );
+      validNews = enrichedNews.filter(item => item !== null);
+    } else {
+      console.log('⚠️  Groq API key not provided, skipping AI enrichment...');
+      validNews = uniqueNews.map(article => ({
+        ...article,
+        summary: article.rawContent ? article.rawContent.substring(0, 120) : 'Summary unavailable',
+        relevanceScore: 50,
+        vibe: 'neutral',
+        whyItMatters: 'Stay informed about L2 developments.'
+      }));
+    }
     const finalBaseCount = validNews.filter(n => n.category === 'base').length;
     
     console.log(`✅ Final: ${validNews.length} articles`);
@@ -375,6 +417,16 @@ function formatTime(timestamp) {
 }
 
 async function enrichWithAI(article, apiKey) {
+  if (!apiKey) {
+    return {
+      ...article,
+      summary: article.rawContent ? article.rawContent.substring(0, 120) : 'Summary unavailable',
+      relevanceScore: 50,
+      vibe: 'neutral',
+      whyItMatters: 'Stay informed about L2 developments.'
+    };
+  }
+
   try {
     const prompt = `Analyze this news for Base blockchain ecosystem users. Base is an Ethereum Layer 2 built by Coinbase.
 
