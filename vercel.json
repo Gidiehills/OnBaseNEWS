@@ -5,6 +5,15 @@
       "maxDuration": 30
     }
   },
-  "buildCommand": "echo 'No build needed'",
-  "outputDirectory": "public"
+  "headers": [
+    {
+      "source": "/og-image.png",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ]
 }
