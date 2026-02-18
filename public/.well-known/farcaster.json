@@ -19,7 +19,7 @@
         "https://ex.co/s3.png"
       ],
       "primaryCategory": "news",
-      "tags": ["news blockchain", "updates", "layer2", "ecosystem", "Base", "world", "updates", "ai", "tech", "crypto","world"],    
+      "tags": ["blockchain","updates","layer2","ecosystem","Base"],
       "heroImageUrl": "https://on-base-news.vercel.app/og-image.png",
       "tagline": "News at your fingertips.",
       "ogTitle": "On-Base News",
