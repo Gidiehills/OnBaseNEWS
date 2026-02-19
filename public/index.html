@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-<<head>
+<head>
   <meta name="base:app_id" content="698cb3a7ca7c92c3cb5bcc11" />
-</head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OnBase News - Base/L2 Ecosystem Updates</title>
 
-  
   <!-- Farcaster Frame Meta Tags -->
   <meta property="fc:frame" content="vNext" />
   <meta property="fc:frame:image" content="https://onbase-news.vercel.app/og-image.png" />
@@ -15,15 +13,20 @@
   <meta property="fc:frame:button:1" content="View Latest News" />
   <meta property="fc:frame:button:1:action" content="link" />
   <meta property="fc:frame:button:1:target" content="https://onbase-news.vercel.app" />
-  
+
   <!-- Open Graph Meta Tags -->
   <meta property="og:title" content="OnBase News" />
   <meta property="og:description" content="AI-powered news for Base blockchain, L2s, and crypto ecosystem" />
   <meta property="og:image" content="https://onbase-news.vercel.app/og-image.png" />
+
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Farcaster MiniApp SDK -->
+  <script src="https://unpkg.com/@farcaster/miniapp-sdk/dist/umd/index.js"></script>
+
   <style>
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
@@ -34,6 +37,21 @@
 
   <script type="text/babel">
     const { useState, useEffect } = React;
+
+    // ─── Open URL: Farcaster SDK first, fallback to window.open ─────────────
+    const openExternalUrl = (url) => {
+      try {
+        if (window.sdk && window.sdk.actions && window.sdk.actions.openUrl) {
+          window.sdk.actions.openUrl(url);
+        } else {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+      } catch (e) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    };
+
+    // ─── Icons ───────────────────────────────────────────────────────────────
 
     const Loader = ({ className }) => (
       <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -81,6 +99,16 @@
       </svg>
     );
 
+    const ExternalLink = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/>
+        <line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+    );
+
+    // ─── Main App ─────────────────────────────────────────────────────────────
+
     const OnBaseNews = () => {
       const [activeCategory, setActiveCategory] = useState('all');
       const [currentIndex, setCurrentIndex] = useState(0);
@@ -92,30 +120,21 @@
       const API_URL = '/api/news';
 
       const categories = [
-        { id: 'all', label: 'All News', emoji: '📰' },
-        { id: 'base', label: 'Base', emoji: '🔵' },
-        { id: 'crypto', label: 'Crypto', emoji: '₿' },
-        { id: 'ai', label: 'AI/Tech', emoji: '🤖' },
-        { id: 'world', label: 'World', emoji: '🌍' }
+        { id: 'all',    label: 'All News', emoji: '📰' },
+        { id: 'base',   label: 'Base',     emoji: '🔵' },
+        { id: 'crypto', label: 'Crypto',   emoji: '₿'  },
+        { id: 'ai',     label: 'AI/Tech',  emoji: '🤖' },
+        { id: 'world',  label: 'World',    emoji: '🌍' }
       ];
 
       const fetchNews = async () => {
         setLoading(true);
         setError(null);
-        
         try {
           const response = await fetch(API_URL);
-          
-          if (!response.ok) {
-            throw new Error(`Failed to fetch news (${response.status})`);
-          }
-          
+          if (!response.ok) throw new Error(`Failed to fetch news (${response.status})`);
           const data = await response.json();
-          
-          if (!data.success || !data.data || data.data.length === 0) {
-            throw new Error('No news articles available');
-          }
-
+          if (!data.success || !data.data || data.data.length === 0) throw new Error('No news articles available');
           setNewsData(data.data);
           setLastUpdated(new Date());
           setLoading(false);
@@ -126,21 +145,19 @@
         }
       };
 
-      useEffect(() => {
-        fetchNews();
-      }, []);
+      useEffect(() => { fetchNews(); }, []);
 
-      const filteredNews = activeCategory === 'all' 
-        ? newsData 
+      const filteredNews = activeCategory === 'all'
+        ? newsData
         : newsData.filter(news => news.category === activeCategory);
 
       const currentNews = filteredNews[currentIndex];
 
       const getVibeIcon = (vibe) => {
         switch(vibe) {
-          case 'bullish': return { Icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50', label: 'Bullish' };
-          case 'bearish': return { Icon: TrendingDown, color: 'text-red-500', bg: 'bg-red-50', label: 'Bearish' };
-          default: return { Icon: Minus, color: 'text-gray-500', bg: 'bg-gray-50', label: 'Neutral' };
+          case 'bullish': return { Icon: TrendingUp,   color: 'text-green-500', bg: 'bg-green-50', label: 'Bullish' };
+          case 'bearish': return { Icon: TrendingDown, color: 'text-red-500',   bg: 'bg-red-50',   label: 'Bearish' };
+          default:        return { Icon: Minus,        color: 'text-gray-500',  bg: 'bg-gray-50',  label: 'Neutral' };
         }
       };
 
@@ -150,14 +167,10 @@
         return 'text-gray-600 bg-gray-50';
       };
 
-      const nextStory = () => {
-        setCurrentIndex((prev) => (prev + 1) % filteredNews.length);
-      };
+      const nextStory = () => setCurrentIndex((prev) => (prev + 1) % filteredNews.length);
+      const prevStory = () => setCurrentIndex((prev) => (prev - 1 + filteredNews.length) % filteredNews.length);
 
-      const prevStory = () => {
-        setCurrentIndex((prev) => (prev - 1 + filteredNews.length) % filteredNews.length);
-      };
-
+      // ── Loading state ──────────────────────────────────────────────────────
       if (loading) {
         return (
           <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center">
@@ -170,6 +183,7 @@
         );
       }
 
+      // ── Error state ────────────────────────────────────────────────────────
       if (error) {
         return (
           <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
@@ -189,6 +203,7 @@
         );
       }
 
+      // ── Empty state ────────────────────────────────────────────────────────
       if (!currentNews || filteredNews.length === 0) {
         return (
           <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
@@ -210,9 +225,12 @@
       const vibeInfo = getVibeIcon(currentNews.vibe);
       const VibeIcon = vibeInfo.Icon;
 
+      // ── Main view ──────────────────────────────────────────────────────────
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 flex items-center justify-center">
           <div className="w-full max-w-md">
+
+            {/* Header */}
             <div className="text-center mb-6">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">OnBase News</h1>
               <p className="text-gray-600 text-sm">Stay updated without leaving Base</p>
@@ -233,14 +251,12 @@
               )}
             </div>
 
+            {/* Category Tabs */}
             <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
               {categories.map(cat => (
                 <button
                   key={cat.id}
-                  onClick={() => {
-                    setActiveCategory(cat.id);
-                    setCurrentIndex(0);
-                  }}
+                  onClick={() => { setActiveCategory(cat.id); setCurrentIndex(0); }}
                   className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-medium transition-all ${
                     activeCategory === cat.id
                       ? 'bg-blue-600 text-white shadow-lg'
@@ -252,14 +268,15 @@
               ))}
             </div>
 
+            {/* News Card */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+
+              {/* Card Header */}
               <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white">
                 <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <div className={`px-3 py-1 rounded-full ${vibeInfo.bg} flex items-center gap-1`}>
-                      <VibeIcon className={`w-4 h-4 ${vibeInfo.color}`} />
-                      <span className={`text-xs font-semibold ${vibeInfo.color}`}>{vibeInfo.label}</span>
-                    </div>
+                  <div className={`px-3 py-1 rounded-full ${vibeInfo.bg} flex items-center gap-1`}>
+                    <VibeIcon className={`w-4 h-4 ${vibeInfo.color}`} />
+                    <span className={`text-xs font-semibold ${vibeInfo.color}`}>{vibeInfo.label}</span>
                   </div>
                   <div className={`px-3 py-1 rounded-full ${getRelevanceColor(currentNews.relevanceScore)} flex items-center gap-1`}>
                     <span className="text-xs font-bold">{currentNews.relevanceScore}</span>
@@ -268,6 +285,7 @@
                 </div>
               </div>
 
+              {/* Card Body */}
               <div className="p-6">
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-3">
@@ -289,9 +307,21 @@
                     <h3 className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-1">Why This Matters</h3>
                     <p className="text-sm text-blue-800">{currentNews.whyItMatters}</p>
                   </div>
+
+                  {/* ── Read Full Story Button (restored) ── */}
+                  {currentNews.url && (
+                    <button
+                      onClick={() => openExternalUrl(currentNews.url)}
+                      className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold py-3 px-4 rounded-xl transition-colors"
+                    >
+                      Read Full Story
+                      <ExternalLink className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
+              {/* Card Footer — Navigation */}
               <div className="bg-gray-50 px-6 py-4 flex items-center justify-between border-t">
                 <button
                   onClick={prevStory}
@@ -300,7 +330,7 @@
                 >
                   <ChevronLeft className="w-6 h-6 text-gray-700" />
                 </button>
-                
+
                 <div className="text-center">
                   <span className="text-sm font-medium text-gray-700">
                     {currentIndex + 1} / {filteredNews.length}
