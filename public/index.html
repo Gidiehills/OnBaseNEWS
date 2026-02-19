@@ -7,8 +7,13 @@
   <title>OnBase News - Base/L2 Ecosystem Updates</title>
 
   <!-- Farcaster Frame Meta Tags -->
-  <meta property="fc:frame" content='{"version":"next","imageUrl":"https://onbase-news.vercel.app/og-image.png","button":{"title":"View Latest News","action":{"type":"launch_frame","name":"OnBase News","url":"https://onbase-news.vercel.app","splashImageUrl":"https://onbase-news.vercel.app/og-image.png","splashBackgroundColor":"#2563eb"}}}' />
- 
+  <meta property="fc:frame" content="vNext" />
+  <meta property="fc:frame:image" content="https://onbase-news.vercel.app/og-image.png" />
+  <meta property="fc:frame:image:aspect_ratio" content="1.91:1" />
+  <meta property="fc:frame:button:1" content="View Latest News" />
+  <meta property="fc:frame:button:1:action" content="link" />
+  <meta property="fc:frame:button:1:target" content="https://onbase-news.vercel.app" />
+
   <!-- Open Graph Meta Tags -->
   <meta property="og:title" content="OnBase News" />
   <meta property="og:description" content="AI-powered news for Base blockchain, L2s, and crypto ecosystem" />
@@ -140,7 +145,18 @@
         }
       };
 
-      useEffect(() => { fetchNews(); }, []);
+      useEffect(() => {
+        fetchNews().then(() => {
+          // Tell Farcaster the app is ready — dismisses the splash screen
+          try {
+            if (window.sdk && window.sdk.actions && window.sdk.actions.ready) {
+              window.sdk.actions.ready();
+            }
+          } catch (e) {
+            console.warn('SDK ready() failed:', e);
+          }
+        });
+      }, []);
 
       const filteredNews = activeCategory === 'all'
         ? newsData
