@@ -7,28 +7,36 @@
   <title>OnBase News - Base/L2 Ecosystem Updates</title>
 
   <!-- Farcaster Frame Meta Tags -->
-  <meta property="fc:frame" content="vNext" />
-  <meta property="fc:frame:image" content="https://onbase-news.vercel.app/og-image.png" />
-  <meta property="fc:frame:image:aspect_ratio" content="1.91:1" />
-  <meta property="fc:frame:button:1" content="View Latest News" />
-  <meta property="fc:frame:button:1:action" content="link" />
-  <meta property="fc:frame:button:1:target" content="https://onbase-news.vercel.app" />
+  <meta
+  name="fc:miniapp"
+  content='{
+    "version": "next",
+    "imageUrl": "https://on-base-news.vercel.app/og-image.png",
+    "button": {
+      "title": "View Latest News",
+      "action": {
+        "type": "launch_frame",
+        "url": "https://on-base-news.vercel.app",
+        "name": "OnBase News",
+        "splashImageUrl": "https://on-base-news.vercel.app/og-image.png",
+        "splashBackgroundColor": "#2563eb"
+      }
+    }
+  }'
+/>
 
   <!-- Open Graph Meta Tags -->
   <meta property="og:title" content="OnBase News" />
   <meta property="og:description" content="AI-powered news for Base blockchain, L2s, and crypto ecosystem" />
-  <meta property="og:image" content="https://on-base-news.vercel.app/og-image.png" />
+  <meta property="og:image" content="https://onbase-news.vercel.app/og-image.png" />
 
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Farcaster MiniApp SDK — loaded as ES module and attached to window -->
-  <script type="module">
-    import sdk from 'https://esm.sh/@farcaster/miniapp-sdk';
-    window.sdk = sdk;
-  </script>
+  <!-- Farcaster MiniApp SDK -->
+  <script src="https://unpkg.com/@farcaster/miniapp-sdk/dist/umd/index.js"></script>
 
   <style>
     .scrollbar-hide::-webkit-scrollbar { display: none; }
@@ -148,15 +156,12 @@
         }
       };
 
-      // ── SDK ready() called after news loads, async callback so await works ──
       useEffect(() => {
-        fetchNews().then(async () => {
+        fetchNews().then(() => {
+          // Tell Farcaster the app is ready — dismisses the splash screen
           try {
             if (window.sdk && window.sdk.actions && window.sdk.actions.ready) {
-              await window.sdk.actions.ready({ disableNativeGestures: true });
-              console.log('✅ SDK ready() called');
-            } else {
-              console.warn('⚠️ SDK not found on window');
+              window.sdk.actions.ready();
             }
           } catch (e) {
             console.warn('SDK ready() failed:', e);
