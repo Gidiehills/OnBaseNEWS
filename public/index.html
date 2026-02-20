@@ -7,12 +7,23 @@
   <title>OnBase News - Base/L2 Ecosystem Updates</title>
 
   <!-- Farcaster Frame Meta Tags -->
-  <meta property="fc:miniapp" content="vNext" />
-  <meta property="fc:miniapp:image" content="https://on-base-news.vercel.app/og-image.png" />
-  <meta property="fc:miniapp:image:aspect_ratio" content="1.91:1" />
-  <meta property="fc:miniapp:button:1" content="View Latest News" />
-  <meta property="fc:miniapp:button:1:action" content="link" />
-  <meta property="fc:miniapp:button:1:target" content="https://on-base-news.vercel.app" />
+  <meta
+  name="fc:miniapp"
+  content='{
+    "version": "next",
+    "imageUrl": "https://on-base-news.vercel.app/og-image.png",
+    "button": {
+      "title": "View Latest News",
+      "action": {
+        "type": "launch_frame",
+        "url": "https://on-base-news.vercel.app",
+        "name": "OnBase News",
+        "splashImageUrl": "https://on-base-news.vercel.app/og-image.png",
+        "splashBackgroundColor": "#2563eb"
+      }
+    }
+  }'
+/>
 
   <!-- Open Graph Meta Tags -->
   <meta property="og:title" content="OnBase News" />
